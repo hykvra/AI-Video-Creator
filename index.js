@@ -1008,7 +1008,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             // SPECIAL RULE: For the VERY LAST image of the video, use the static Subscribe image (if it exists)
             // This forces the "Subscribe" CTA to be exactly at the end
             if (i === allImagePrompts.length - 1) {
-                const subscribeImagePath = path.join(__dirname, 'assest', 'TheOrenStudio_Subscribe_Image.png');
+                const subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
                 if (fs.existsSync(subscribeImagePath)) {
                     console.log(`Using static subscribe image for Final Scene, Final Image`);
                     try {
@@ -1284,7 +1284,7 @@ app.post('/api/create-video', async (req, res) => {
             const lastScene = scenes[scenes.length - 1];
             const prompts = lastScene.image_prompts || [lastScene.image_prompt];
             if (prompts.length > 0) {
-                prompts[prompts.length - 1] = "🔒 [STATIC IMAGE] Using TheOrenStudio_Subscribe_Image.png";
+                prompts[prompts.length - 1] = "🔒 [STATIC IMAGE] Using subscribe_image.png";
                 lastScene.image_prompts = prompts;
             }
         }
