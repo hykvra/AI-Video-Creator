@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #9ca3af;
+            font-size: 16px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #e5e7eb;
+            margin-bottom: 8px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 16px;
+            font-size: 16px;
+            font-family: inherit;
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: #fff;
+            resize: vertical;
+            min-height: 100px;
+            transition: all 0.3s ease;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+        }
+
+        textarea::placeholder {
+            color: #6b7280;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 16px 32px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: inherit;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Progress Section */
+        .progress-section {
+            margin-top: 24px;
+            display: none;
+        }
+
+        .progress-section.visible {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            color: #e5e7eb;
+        }
+
+        .progress-percent {
+            color: #a855f7;
+            font-weight: 600;
+        }
+
+        .progress-bar-container {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        /* Timer Display */
+        .timer-display {
+            text-align: center;
+            margin-bottom: 16px;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
+            border-radius: 12px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .timer-label {
+            font-size: 12px;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .timer-value {
+            font-size: 32px;
+            font-weight: 700;
+            font-family: 'Monaco', 'Consolas', monospace;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Live Log */
+        .live-log {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 12px;
+            padding: 16px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 13px;
+        }
+
+        .log-entry {
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry.script {
+            background: rgba(99, 102, 241, 0.2);
+            border-left: 3px solid #6366f1;
+        }
+
+        .log-entry.image {
+            background: rgba(168, 85, 247, 0.2);
+            border-left: 3px solid #a855f7;
+        }
+
+        .log-entry.audio {
+            background: rgba(236, 72, 153, 0.2);
+            border-left: 3px solid #ec4899;
+        }
+
+        .log-entry.clip {
+            background: rgba(34, 211, 238, 0.2);
+            border-left: 3px solid #22d3ee;
+        }
+
+        .log-entry.scene_complete {
+            background: rgba(34, 197, 94, 0.2);
+            border-left: 3px solid #22c55e;
+        }
+
+        .log-entry.assembly {
+            background: rgba(251, 191, 36, 0.2);
+            border-left: 3px solid #fbbf24;
+        }
+
+        .log-entry.complete {
+            background: rgba(34, 197, 94, 0.3);
+            border-left: 3px solid #22c55e;
+        }
+
+        .log-entry.error {
+            background: rgba(239, 68, 68, 0.2);
+            border-left: 3px solid #ef4444;
+        }
+
+        .log-icon {
+            font-size: 16px;
+        }
+
+        .log-text {
+            flex: 1;
+            color: #e5e7eb;
+        }
+
+        .log-time {
+            color: #6b7280;
+            font-size: 11px;
+        }
+
+        /* Success Section */
+        .success-section {
+            display: none;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .success-section.visible {
+            display: block;
+        }
+
+        .success-box {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .success-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #22c55e;
+            margin-bottom: 8px;
+        }
+
+        .video-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 16px;
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .video-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(34, 197, 94, 0.4);
+        }
+
+        .reset-btn {
+            margin-top: 12px;
+            padding: 10px 20px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #9ca3af;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .reset-btn:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            color: #fff;
+        }
+
+        /* Duration Selector */
+        .duration-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 10px;
+        }
+
+        .duration-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 12px 8px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .duration-btn:hover {
+            border-color: rgba(99, 102, 241, 0.5);
+            color: #e5e7eb;
+        }
+
+        .duration-btn.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3));
+            border-color: #6366f1;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🎬</div>
+            <h1>AI Video Generator</h1>
+            <p class="subtitle">Create stunning videos from any topic with AI</p>
+        </div>
+
+        <div class="card">
+            <!-- Language Selector -->
+            <div class="form-group">
+                <label for="language">Language</label>
+                <div class="duration-selector">
+                    <button type="button" class="duration-btn active" data-language="gujarati"
+                        onclick="selectLanguage('gujarati')">🇮🇳 Gujarati</button>
+                    <button type="button" class="duration-btn" data-language="hindi"
+                        onclick="selectLanguage('hindi')">🇮🇳 Hindi</button>
+                    <button type="button" class="duration-btn" data-language="english"
+                        onclick="selectLanguage('english')">🇬🇧 English</button>
+                </div>
+                <input type="hidden" id="language" value="gujarati">
+            </div>
+
+            <!-- Duration hidden for Did You Know - auto calculated from content -->
+            <div class="form-group" style="display: none;">
+                <label for="duration">Video Duration</label>
+                <div class="duration-selector">
+                    <button type="button" class="duration-btn" data-duration="30"
+                        onclick="selectDuration(30)">30s</button>
+                    <button type="button" class="duration-btn active" data-duration="60"
+                        onclick="selectDuration(60)">60s</button>
+                    <button type="button" class="duration-btn" data-duration="90"
+                        onclick="selectDuration(90)">90s</button>
+                    <button type="button" class="duration-btn" data-duration="120" onclick="selectDuration(120)">2
+                        min</button>
+                    <button type="button" class="duration-btn" data-duration="180" onclick="selectDuration(180)">3
+                        min</button>
+                </div>
+                <input type="hidden" id="duration" value="60">
+            </div>
+
+            <div class="form-group">
+                <label for="genre">Video Style</label>
+                <div class="duration-selector">
+                    <button type="button" class="duration-btn active" data-genre="informative"
+                        onclick="selectGenre('informative')">📚 Informative</button>
+                    <button type="button" class="duration-btn" data-genre="comedy" onclick="selectGenre('comedy')">😂
+                        Comedy</button>
+                    <button type="button" class="duration-btn" data-genre="storytelling"
+                        onclick="selectGenre('storytelling')">📖 Story</button>
+                    <button type="button" class="duration-btn" data-genre="motivational"
+                        onclick="selectGenre('motivational')">💪 Motivational</button>
+                    <button type="button" class="duration-btn" data-genre="didyouknow"
+                        onclick="selectGenre('didyouknow')">🤔 Did You Know</button>
+                </div>
+                <input type="hidden" id="genre" value="informative">
+            </div>
+
+            <!-- Topic field (Default) -->
+            <div class="form-group" id="topicSection">
+                <label for="topic">Enter Your Topic</label>
+                <textarea id="topic"
+                    placeholder="e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration..."></textarea>
+            </div>
+
+            <!-- Did You Know Fields (Hidden by default) -->
+            <div class="form-group" id="didYouKnowSection" style="display: none;">
+                <label for="hook">🎣 The Hook (Attention-grabbing question)</label>
+                <textarea id="hook" placeholder="e.g., Did you know honey never spoils?"
+                    style="min-height: 80px;"></textarea>
+                <label for="fact" style="margin-top: 16px;">📖 The Fact (Detailed explanation)</label>
+                <textarea id="fact" placeholder="e.g., Archaeologists found 3000 year old honey..."></textarea>
+            </div>
+
+            <!-- Comedy Level Selector (appears when Comedy is selected) -->
+            <div class="form-group" id="comedyLevelSection" style="display: none;">
+                <label for="comedyLevel">Comedy Intensity</label>
+                <div class="duration-selector">
+                    <button type="button" class="duration-btn active" data-comedy-level="mild"
+                        onclick="selectComedyLevel('mild')">😊 Mild</button>
+                    <button type="button" class="duration-btn" data-comedy-level="medium"
+                        onclick="selectComedyLevel('medium')">😄 Medium</button>
+                    <button type="button" class="duration-btn" data-comedy-level="spicy"
+                        onclick="selectComedyLevel('spicy')">🔥 Spicy</button>
+                </div>
+                <input type="hidden" id="comedyLevel" value="mild">
+            </div>
+
+            <!-- Preview Toggle -->
+            <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                <input type="checkbox" id="previewMode" style="width: 20px; height: 20px;" checked>
+                <label for="previewMode" style="margin: 0; font-size: 15px; cursor: pointer;">Review Script & Prompts
+                    before generating</label>
+            </div>
+
+            <button class="btn btn-primary" id="generateBtn" onclick="generateVideo()">
+                <span id="btnText">Generate Video</span>
+                <div class="spinner" id="spinner" style="display: none;"></div>
+            </button>
+
+            <!-- Review Section (Hidden by default) -->
+            <div id="reviewSection"
+                style="display: none; margin-top: 24px; background: rgba(0,0,0,0.4); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                <h3 style="color: #6366f1; margin-bottom: 16px;">🎬 Script Review</h3>
+                <div id="reviewContent" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+                    <!-- Content injected here -->
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-primary" onclick="confirmGeneration()" style="flex: 1;">✅ Approve &
+                        Generate</button>
+                    <button class="btn" onclick="cancelGeneration()"
+                        style="flex: 1; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5);">❌
+                        Cancel</button>
+                </div>
+            </div>
+
+            <!-- Progress Section -->
+            <div class="progress-section" id="progressSection">
+                <!-- Timer Display -->
+                <div class="timer-display">
+                    <div class="timer-label">Elapsed Time</div>
+                    <div class="timer-value" id="timerValue">00:00</div>
+                </div>
+                <div class="progress-header">
+                    <span class="progress-title">Creating Your Video</span>
+                    <span class="progress-percent" id="progressPercent">0%</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+                <div class="live-log" id="liveLog"></div>
+            </div>
+
+            <!-- Success Section -->
+            <div class="success-section" id="successSection">
+                <div class="success-box">
+                    <div class="success-icon">🎉</div>
+                    <div class="success-title">Video Ready!</div>
+                    <a class="video-link" id="videoLink" target="_blank">▶️ Watch Video</a>
+                    <br>
+                    <button class="reset-btn" onclick="resetForm()">Create Another Video</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let totalScenes = 0;
+        let timerInterval = null;
+        let timerStartTime = null;
+        let currentSessionId = null;
+
+        const icons = {
+            script: '📝', image: '🖼️', audio: '🎙️', clip: '🎬',
+            scene_complete: '✅', assembly: '🔧', upload: '☁️', complete: '🎉', error: '❌',
+            previewReady: '👀'
+        };
+
+        function startTimer() {
+            timerStartTime = Date.now();
+            updateTimerDisplay();
+            timerInterval = setInterval(updateTimerDisplay, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        function updateTimerDisplay() {
+            if (!timerStartTime) return;
+            const elapsed = Math.floor((Date.now() - timerStartTime) / 1000);
+            const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const seconds = (elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('timerValue').textContent = `${minutes}:${seconds}`;
+        }
+
+        function resetTimer() {
+            stopTimer();
+            timerStartTime = null;
+            document.getElementById('timerValue').textContent = '00:00';
+        }
+
+        function addLogEntry(step, message) {
+            const log = document.getElementById('liveLog');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${step}`;
+            entry.innerHTML = `
+                <span class="log-icon">${icons[step] || '📌'}</span>
+                <span class="log-text">${message}</span>
+                <span class="log-time">${time}</span>
+            `;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateProgress(sceneIndex, totalScenes, step) {
+            if (totalScenes === 0) return;
+
+            // Calculate progress: each scene has 3 steps (image, audio, clip)
+            // Plus 1 for script at start and 1 for assembly at end
+            const totalSteps = (totalScenes * 3) + 2;
+            let currentStep = 1; // Script done
+
+            if (step === 'script' || step === 'previewReady') {
+                currentStep = 1;
+            } else if (step === 'complete') {
+                currentStep = totalSteps;
+            } else if (step === 'assembly') {
+                currentStep = totalSteps - 1;
+            } else {
+                // Each completed scene = 3 steps
+                const completedScenes = Math.max(0, sceneIndex - 1);
+                currentStep = 1 + (completedScenes * 3);
+
+                if (step === 'image') currentStep += 1;
+                else if (step === 'audio') currentStep += 2;
+                else if (step === 'clip' || step === 'scene_complete') currentStep += 3;
+            }
+
+            const percent = Math.min(100, Math.round((currentStep / totalSteps) * 100));
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('progressPercent').textContent = `${percent}%`;
+        }
+
+        function selectDuration(seconds) {
+            document.getElementById('duration').value = seconds;
+            document.querySelectorAll('[data-duration]').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.duration) === seconds) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        function selectGenre(genre) {
+            document.getElementById('genre').value = genre;
+            document.querySelectorAll('[data-genre]').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.genre === genre) {
+                    btn.classList.add('active');
+                }
+            });
+
+            // Show/hide comedy level selector
+            const comedyLevelSection = document.getElementById('comedyLevelSection');
+            comedyLevelSection.style.display = genre === 'comedy' ? 'block' : 'none';
+
+            // Show/hide Did You Know fields and Topic field
+            const didYouKnowSection = document.getElementById('didYouKnowSection');
+            const topicGroup = document.getElementById('topic').parentElement;
+            if (genre === 'didyouknow') {
+                didYouKnowSection.style.display = 'block';
+                topicGroup.style.display = 'none';
+            } else {
+                didYouKnowSection.style.display = 'none';
+                topicGroup.style.display = 'block';
+            }
+        }
+
+        function selectComedyLevel(level) {
+            document.getElementById('comedyLevel').value = level;
+            document.querySelectorAll('[data-comedy-level]').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.comedyLevel === level) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        function selectLanguage(language) {
+            document.getElementById('language').value = language;
+            document.querySelectorAll('[data-language]').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.language === language) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        async function generateVideo() {
+            const genre = document.getElementById('genre').value || 'informative';
+            const duration = parseInt(document.getElementById('duration').value) || 60;
+            const comedyLevel = document.getElementById('comedyLevel').value || 'mild';
+            const language = document.getElementById('language').value || 'gujarati';
+            const preview = document.getElementById('previewMode').checked;
+
+            let requestBody = { duration, genre, comedyLevel, language, preview };
+
+            // Handle Did You Know genre differently
+            if (genre === 'didyouknow') {
+                const hook = document.getElementById('hook').value.trim();
+                const fact = document.getElementById('fact').value.trim();
+                if (!hook || !fact) {
+                    alert('Please enter both the Hook and the Fact');
+                    return;
+                }
+                requestBody.hook = hook;
+                requestBody.fact = fact;
+            } else {
+                const topic = document.getElementById('topic').value.trim();
+                if (!topic) {
+                    alert('Please enter a topic');
+                    return;
+                }
+                requestBody.topic = topic;
+            }
+
+            // Reset UI
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('btnText').textContent = 'Starting...';
+            document.getElementById('spinner').style.display = 'block';
+            document.getElementById('progressSection').classList.add('visible');
+            document.getElementById('successSection').classList.remove('visible');
+            document.getElementById('reviewSection').style.display = 'none';
+            document.getElementById('liveLog').innerHTML = '';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressPercent').textContent = '0%';
+
+            // Start the timer
+            resetTimer();
+            startTimer();
+
+            try {
+                // Start video creation
+                const response = await fetch('/api/create-video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (!data.success || !data.sessionId) {
+                    throw new Error(data.error || 'Failed to start video creation');
+                }
+
+                currentSessionId = data.sessionId;
+
+                // Connect to SSE for progress updates
+                addLogEntry('script', 'Starting video creation...');
+
+                eventSource = new EventSource(`/api/progress/${data.sessionId}`);
+
+                eventSource.onmessage = (event) => {
+                    const progress = JSON.parse(event.data);
+
+                    addLogEntry(progress.step, progress.message);
+
+                    if (progress.totalScenes) {
+                        totalScenes = progress.totalScenes;
+                    }
+
+                    updateProgress(progress.sceneIndex || 0, totalScenes, progress.step);
+
+                    if (progress.step === 'complete') {
+                        eventSource.close();
+                        showSuccess(progress.videoUrl, progress.youtubeMetadata);
+                    } else if (progress.step === 'error') {
+                        eventSource.close();
+                        showError(progress.message);
+                    } else if (progress.step === 'previewReady') {
+                        // Show review UI
+                        stopTimer(); // Pause timer while reviewing
+                        renderReviewContent(progress.data);
+                        document.getElementById('reviewSection').style.display = 'block';
+                        document.getElementById('btnText').textContent = 'Reviewing...';
+                        document.getElementById('spinner').style.display = 'none';
+                        // Keep connection open? No need, backend returned, but SSE kept alive?
+                        // Actually backend stopped, but SSE connection is separate. 
+                        // The 'previewReady' was sent, then server function returned.
+                        // We can verify this.
+                    }
+                };
+
+                eventSource.onerror = () => {
+                    // Connection closed
+                };
+
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function renderReviewContent(data) {
+            const container = document.getElementById('reviewContent');
+            const langKey = data.language === 'english' ? 'audio_script_english' :
+                data.language === 'hindi' ? 'audio_script_hindi' : 'audio_script_gujarati';
+
+            const yt = data.youtubeMetadata || {};
+
+            let html = `<div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <h4 style="color: #ec4899; margin-bottom: 8px;">📺 YouTube Shorts Metadata</h4>
+                <div style="margin-bottom: 8px;"><strong>Title:</strong> ${yt.title || 'N/A'}</div>
+                <div style="margin-bottom: 8px; font-size: 13px;"><strong>Description:</strong><br>${yt.description || 'N/A'}</div>
+                <div style="font-size: 12px;"><strong>Tags:</strong> ${(yt.tags || []).join(', ')}</div>
+            </div>
+            
+            <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <strong>Script Title:</strong> ${data.videoTitle}<br>
+                <strong>Language:</strong> ${data.language}
+            </div>`;
+
+            data.scenes.forEach((scene, index) => {
+                const narration = scene[langKey];
+                const prompts = scene.image_prompts || [scene.image_prompt];
+
+                html += `
+                <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+                    <h4 style="color: #a855f7; margin-bottom: 8px;">Scene ${index + 1}</h4>
+                    <p style="margin-bottom: 10px; color: #e5e7eb;"><strong>🎙️ Narration:</strong><br>${narration}</p>
+                    <div style="font-size: 13px; color: #9ca3af;">
+                        <strong>🖼️ Image Prompts:</strong>
+                        <ul style="padding-left: 20px; margin-top: 5px;">
+                            ${prompts.map(p => `<li>${p}</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function confirmGeneration() {
+            document.getElementById('reviewSection').style.display = 'none';
+            document.getElementById('btnText').textContent = 'Generating...';
+            document.getElementById('spinner').style.display = 'block';
+            startTimer(); // Resume timer
+
+            try {
+                const response = await fetch('/api/confirm-video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: currentSessionId })
+                });
+
+                const data = await response.json();
+                if (!data.success) throw new Error(data.error);
+
+                addLogEntry('script', 'Plan approved! Resuming generation...');
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        function cancelGeneration() {
+            if (eventSource) eventSource.close();
+            resetForm();
+        }
+
+        function showSuccess(videoUrl, youtubeMetadata) {
+            stopTimer(); // Stop the timer on success
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('btnText').textContent = 'Generate Video';
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('successSection').classList.add('visible');
+            document.getElementById('videoLink').href = videoUrl;
+
+            // Render YouTube Metadata in Success Box
+            const yt = youtubeMetadata || {};
+            const successBox = document.querySelector('.success-box');
+
+            // Remove existing metadata if any (to prevent duplicates on multiple runs)
+            const existingMeta = document.getElementById('successMetadata');
+            if (existingMeta) existingMeta.remove();
+
+            const metaDiv = document.createElement('div');
+            metaDiv.id = 'successMetadata';
+            metaDiv.style.marginTop = '20px';
+            metaDiv.style.textAlign = 'left';
+            metaDiv.style.background = 'rgba(0,0,0,0.2)';
+            metaDiv.style.padding = '15px';
+            metaDiv.style.borderRadius = '8px';
+
+            let thumbnailsHtml = '';
+            if (yt.thumbnails && yt.thumbnails.length > 0) {
+                thumbnailsHtml = `
+                <div style="margin-top: 15px;">
+                    <strong>📸 Viral Thumbnails:</strong>
+                    <div style="display: flex; gap: 10px; margin-top: 10px; overflow-x: auto;">
+                        ${yt.thumbnails.map(url => `
+                            <div>
+                                <img src="${url}" style="height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
+                                <div style="margin-top: 5px; text-align: center;">
+                                    <a href="${url}" target="_blank" style="color: #a855f7; font-size: 12px; text-decoration: none;">Download</a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }
+
+            metaDiv.innerHTML = `
+                <h4 style="color: #ec4899; margin-bottom: 10px; text-align: center;">COPY FOR YOUTUBE</h4>
+                <div style="margin-bottom: 10px;">
+                    <strong>TITLE:</strong>
+                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 13px;">${yt.title || '-'}</div>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <strong>DESCRIPTION:</strong>
+                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px; max-height: 100px; overflow-y: auto;">${yt.description || '-'}</div>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <strong>TAGS:</strong>
+                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px;">${(yt.tags || []).join(', ')}</div>
+                </div>
+                ${thumbnailsHtml}
+            `;
+
+            // Insert before the "Watch Video" link or append
+            successBox.insertBefore(metaDiv, document.getElementById('videoLink'));
+        }
+
+        function showError(message) {
+            stopTimer(); // Stop the timer on error
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('btnText').textContent = 'Generate Video';
+            document.getElementById('spinner').style.display = 'none';
+            addLogEntry('error', `Error: ${message}`);
+        }
+
+        function resetForm() {
+            resetTimer(); // Reset the timer
+            document.getElementById('topic').value = '';
+            document.getElementById('hook').value = '';
+            document.getElementById('fact').value = '';
+            document.getElementById('progressSection').classList.remove('visible');
+            document.getElementById('successSection').classList.remove('visible');
+            document.getElementById('reviewSection').style.display = 'none';
+            document.getElementById('liveLog').innerHTML = '';
+            if (eventSource) eventSource.close();
+        }
+
+        document.getElementById('topic').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) generateVideo();
+        });
+    </script>
+</body>
+
+</html>

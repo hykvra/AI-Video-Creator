@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.gitignore
+node_modules
+output
+temp
+.env
+package-lock.json
+docker-compose.yml
+.dockerignore
