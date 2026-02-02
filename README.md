@@ -389,11 +389,11 @@ If you use, modify, or distribute this software or substantial portions of it, y
 
 or
 
-> "Original work by Hykvra Solutions LLP - Created by Raj Hussain Kanani"
+> "Original work by Hykvra Solutions LLP - Created by Rajhussain Kanani"
 
 or
 
-> "Developed by Hykvra Solutions LLP (https://github.com/rajhussainkanani)"
+> "Developed by Hykvra Solutions LLP (https://github.com/hykvra)"
 
 This attribution should appear in your project's README, documentation, or about section in a visible location.
 
@@ -403,9 +403,9 @@ This attribution should appear in your project's README, documentation, or about
 
 **Hykvra Solutions LLP**
 
-Created by: Raj Hussain Kanani
+Created by: RajHussain Kanani
 
-- GitHub: [@rajhussainkanani](https://github.com/rajhussainkanani)
+- GitHub: [@hykvra](https://github.com/hykvra)
 - Company: Hykvra Solutions LLP
 - Year: 2026
 
@@ -424,8 +424,8 @@ Created by: Raj Hussain Kanani
 
 If you encounter any issues or have questions:
 
-- 📋 [Create an issue](https://github.com/rajhussainkanani/ai-video-service/issues)
-- 💬 Check existing [discussions](https://github.com/rajhussainkanani/ai-video-service/discussions)
+- 📋 [Create an issue](https://github.com/hykvra/ai-video-service/issues)
+- 💬 Check existing [discussions](https://github.com/hykvra/ai-video-service/discussions)
 - 📖 Review the [documentation](#-api-documentation)
 
 ---
@@ -434,7 +434,7 @@ If you encounter any issues or have questions:
 
 **Made with ❤️ by Hykvra Solutions LLP**
 
-Developed by Raj Hussain Kanani
+Developed by Rajhussain Kanani
 
 If you find this project useful, please consider giving it a ⭐!
 
