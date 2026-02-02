@@ -1,3 +1,25 @@
+/**
+ * AI Video Service - React Native Component (Reference Implementation)
+ * 
+ * This is a reference implementation of a React Native mobile app component for the AI Video Service.
+ * The main application uses a web-based UI (public/index.html), but this component can be used
+ * as a starting point for building iOS/Android mobile apps.
+ * 
+ * @author Hykvra Solutions LLP (Raj Hussain Kanani)
+ * @license MIT
+ * @copyright 2026 Hykvra Solutions LLP
+ * 
+ * Attribution Required: If you use, modify, or distribute this software or substantial portions
+ * of it, you must provide clear attribution to the original developers:
+ * "Based on AI Video Service by Hykvra Solutions LLP" or
+ * "Original work by Hykvra Solutions LLP - Created by Raj Hussain Kanani"
+ * 
+ * @component VideoCreator
+ * @description React Native component for creating AI-generated videos with multilingual narration.
+ * Provides a mobile-friendly interface for video generation with genre selection, language options,
+ * and real-time status updates.
+ */
+
 import React, { useState } from 'react';
 import {
     View,
@@ -11,8 +33,20 @@ import {
     ScrollView
 } from 'react-native';
 
-// API Configuration - Update this with your server URL
+/**
+ * API Configuration
+ * Update this with your server URL when deploying to production.
+ * For development: http://localhost:3000
+ * For production: https://your-domain.com
+ */
 const API_BASE_URL = 'http://localhost:3000';
+
+/**
+ * VideoCreator Component
+ * 
+ * Main component for AI video creation on React Native.
+ * Supports multiple genres, languages, and comedy levels.
+ */
 
 const VideoCreator = () => {
     // Core State

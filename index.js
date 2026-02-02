@@ -1,3 +1,19 @@
+/**
+ * AI Video Service - Main Server
+ * 
+ * AI-powered video generation service with multilingual narration, automated script writing,
+ * AI-generated visuals, and YouTube optimization.
+ * 
+ * @author Hykvra Solutions LLP (Raj Hussain Kanani)
+ * @license MIT
+ * @copyright 2026 Hykvra Solutions LLP
+ * 
+ * Attribution Required: If you use, modify, or distribute this software or substantial portions
+ * of it, you must provide clear attribution to the original developers:
+ * "Based on AI Video Service by Hykvra Solutions LLP" or
+ * "Original work by Hykvra Solutions LLP - Created by Raj Hussain Kanani"
+ */
+
 import express from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -59,7 +75,25 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 const activeConnections = new Map();
 
 /**
- * Send progress update to SSE client
+ * Send progress update to SSE client via Server-Sent Events
+ * 
+ * @param {string} sessionId - Unique session identifier for the video creation process
+ * @param {Object} data - Progress data object
+ * @param {string} data.step - Current step name (e.g., 'script', 'images', 'audio', 'video', 'complete')
+ * @param {string} data.status - Status of the step ('in_progress', 'completed', 'error')
+ * @param {string} data.message - Human-readable progress message
+ * @param {number} [data.sceneIndex] - Optional current scene index (0-based)
+ * @param {number} [data.totalScenes] - Optional total number of scenes
+ * @returns {void}
+ * 
+ * @example
+ * sendProgress('abc123', {
+ *   step: 'images',
+ *   status: 'in_progress',
+ *   message: 'Generating scene 2 of 5',
+ *   sceneIndex: 1,
+ *   totalScenes: 5
+ * });
  */
 function sendProgress(sessionId, data) {
     const connection = activeConnections.get(sessionId);
@@ -263,22 +297,23 @@ SCENE 3-4 - THE DETAILS (Explain and expand):
 - DO NOT include any subscribe/CTA content here
 
 FINAL SCENE ONLY - THE CTA (Call to Action):
-- ONLY the very last scene should have subscribe/CTA content
+- ONLY the very last scene should have subscribe/CTA content in the AUDIO SCRIPT
 - End with: "Subscribe for more facts from US!" or similar subscribe appeal in ${langConfig.name}
 - Make it engaging: "Agar aapko ye fact pasand aaya, toh subscribe karo for more!"
-- Image should show: friendly male presenter pointing at subscribe button, colorful "Subscribe" text, arrows pointing to subscribe
-- Keep it short and punchy (3-5 seconds)
+- Keep the audio CTA short and punchy (3-5 seconds)
 
-CRITICAL WARNING - IMAGE PROMPTS:
-- Subscribe buttons, CTA text, "Subscribe" imagery, or channel-related visuals should ONLY appear in the VERY LAST scene's image_prompts
-- All other scenes (1 to N-1) must focus ONLY on the topic/fact content
-- If the final scene is scene 6, then scenes 1-5 should have ZERO subscribe-related imagery
+CRITICAL WARNING - IMAGE PROMPTS FOR ALL SCENES:
+- DO NOT generate subscribe buttons, CTA text, "Subscribe" imagery, or channel-related visuals in ANY scene image_prompts
+- ALL scenes (including the final scene) must have image_prompts focused ONLY on the topic/fact content
+- The subscribe image will be AUTOMATICALLY displayed in the last 5 seconds by the system
+- For final scene images: show relevant topic visuals, historical imagery, or fact illustrations that match the narration
+- Example: If final scene talks about space while saying "subscribe", images should show SPACE content, NOT subscribe buttons
 
 Use phrases like:
 - "Kya aapko pata hai..." / "Did you know..."
 - "Haan, sach mein!" / "Yes, really!"
 - "Sochiye zara..." / "Just imagine..."
-- "Subscribe karo!" / "Subscribe for more!" (ONLY IN FINAL SCENE)` : ''}
+- "Subscribe karo!" / "Subscribe for more!" (IN AUDIO ONLY, NOT IN IMAGE PROMPTS)` : ''}
 
 Make the content highly engaging and perfect for social media. Use the capabilities of the eleven_multilingual_v2 model to deliver a high-quality human-like narration.
 
@@ -411,6 +446,16 @@ CRITICAL: Keep the JSON response complete and valid. Do not truncate.`;
 
 /**
  * Create a placeholder image using pure Node.js (no FFmpeg lavfi)
+ * 
+ * Used as a fallback when Gemini image generation fails after retries.
+ * Creates a minimal 1x1 pixel dark purple PNG placeholder.
+ * 
+ * @param {string} outputPath - Absolute file path where the placeholder image should be saved
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
+ * @throws {Error} If file write operation fails
+ * 
+ * @example
+ * await createPlaceholderImage('/path/to/placeholder.png');
  */
 function createPlaceholderImage(outputPath) {
     return new Promise((resolve, reject) => {
@@ -438,8 +483,21 @@ function createPlaceholderImage(outputPath) {
 
 /**
  * Generate image using Gemini 2.5 Flash Image (via @google/genai SDK)
- * Model: gemini-2.5-flash-image
- * Uses generateContent with text prompt to get image response
+ * 
+ * Generates a 9:16 vertical aspect ratio image optimized for mobile viewing.
+ * Implements retry logic with exponential backoff. Falls back to placeholder on failure.
+ * 
+ * @param {string} prompt - Detailed English image prompt describing the desired visual
+ * @param {string} outputPath - Absolute file path where the generated image should be saved
+ * @param {number} [retries=3] - Maximum number of retry attempts if generation fails
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
+ * 
+ * @example
+ * const imagePath = await generateImage(
+ *   'A beautiful sunset over mountains in 9:16 aspect ratio',
+ *   '/tmp/scene1.png',
+ *   3
+ * );
  */
 async function generateImage(prompt, outputPath, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -496,6 +554,23 @@ async function generateImage(prompt, outputPath, retries = 3) {
 
 /**
  * Generate audio using Cartesia TTS API with retry logic
+ * 
+ * Synthesizes natural-sounding speech using Cartesia Sonic-3 TTS model.
+ * Supports multilingual narration (Gujarati, Hindi, English) with the configured voice.
+ * Implements retry logic with 2-second delays between attempts.
+ * 
+ * @param {string} text - Text to synthesize into speech (in any supported language)
+ * @param {string} outputPath - Absolute file path where the audio WAV file should be saved
+ * @param {number} [retries=3] - Maximum number of retry attempts if synthesis fails
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
+ * @throws {Error} If all retry attempts fail (no fallback for audio)
+ * 
+ * @example
+ * const audioPath = await generateAudio(
+ *   'નમસ્તે! આ એક ટેસ્ટ છે।',
+ *   '/tmp/narration.wav',
+ *   3
+ * );
  */
 async function generateAudio(text, outputPath, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -560,6 +635,16 @@ async function generateAudio(text, outputPath, retries = 3) {
 
 /**
  * Get audio duration using ffprobe
+ * 
+ * Uses FFmpeg's ffprobe to extract the exact duration of an audio file.
+ * 
+ * @param {string} audioPath - Absolute path to the audio file
+ * @returns {Promise<number>} Promise that resolves to duration in seconds (float)
+ * @throws {Error} If ffprobe fails to read the file or extract metadata
+ * 
+ * @example
+ * const duration = await getAudioDuration('/tmp/narration.wav');
+ * console.log(`Audio is ${duration.toFixed(2)} seconds long`);
  */
 function getAudioDuration(audioPath) {
     return new Promise((resolve, reject) => {
@@ -575,6 +660,16 @@ function getAudioDuration(audioPath) {
 
 /**
  * Add silence to the beginning of an audio file using adelay filter
+ * 
+ * Uses FFmpeg's adelay audio filter to add a delay (silence) at the start of an audio file.
+ * This is useful for synchronizing audio with video or adding pauses.
+ * 
+ * @param {string} inputPath - Absolute path to the input audio file
+ * @param {number} durationSeconds - Duration of silence to add in seconds
+ * @returns {Promise<string>} Promise that resolves to the modified input path
+ * 
+ * @example
+ * await addSilenceToAudio('/tmp/narration.wav', 2.0); // Adds 2 seconds of silence
  */
 function addSilenceToAudio(inputPath, durationSeconds) {
     return new Promise((resolve, reject) => {
@@ -602,6 +697,27 @@ function addSilenceToAudio(inputPath, durationSeconds) {
 
 /**
  * Create video clip from image and audio with Ken Burns effect
+ * 
+ * Generates a video clip by combining a static image with audio narration.
+ * Applies Ken Burns effect (smooth zoom and pan animation) for visual interest.
+ * Alternates between zoom-in and zoom-out based on scene index.
+ * 
+ * @param {string} imagePath - Absolute path to the source image file
+ * @param {string} audioPath - Absolute path to the audio narration file
+ * @param {string} outputPath - Absolute path for the output video file
+ * @param {number} duration - Duration of the video clip in seconds
+ * @param {number} sceneIndex - Index of the scene (0-based, used to vary animation direction)
+ * @returns {Promise<string>} Promise that resolves to the output path when encoding completes
+ * @throws {Error} If FFmpeg encoding fails
+ * 
+ * @example
+ * await createVideoClip(
+ *   '/tmp/scene1.png',
+ *   '/tmp/audio1.wav',
+ *   '/tmp/clip1.mp4',
+ *   15.5,
+ *   0
+ * );
  */
 function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex) {
     return new Promise((resolve, reject) => {
@@ -639,11 +755,12 @@ function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex)
                 '-map', '0:v:0',
                 '-map', '1:a:0',
                 '-c:v', 'libx264',
-                '-preset', 'ultrafast',  // Changed from 'fast' for much faster encoding
+                '-preset', 'veryfast',  // Changed from 'fast' for much faster encoding
                 '-crf', '23',  // Slightly lower quality for speed, still good
                 '-c:a', 'aac',
                 '-b:a', '192k',  // Higher quality audio
                 '-ar', '44100',
+                '-threads', '0',
                 '-ac', '2',
                 '-t', videoDuration,
                 '-vf', kenBurnsFilter
@@ -656,7 +773,29 @@ function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex)
 }
 /**
  * Create video clip from image and audio segment with Ken Burns effect
- * Uses precise audio extraction to avoid sync issues
+ * 
+ * Similar to createVideoClip but extracts a specific segment from a longer audio file.
+ * Uses precise audio seeking to avoid synchronization issues.
+ * Applies Ken Burns effect alternating between zoom directions based on clip index.
+ * 
+ * @param {string} imagePath - Absolute path to the source image file
+ * @param {string} audioPath - Absolute path to the full audio file
+ * @param {string} outputPath - Absolute path for the output video clip
+ * @param {number} startTime - Start time in seconds within the audio file
+ * @param {number} duration - Duration of the clip in seconds
+ * @param {number} clipIndex - Index of the clip (0-based, used to vary animation)
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
+ * @throws {Error} If FFmpeg encoding fails
+ * 
+ * @example
+ * await createVideoClipWithAudioSegment(
+ *   '/tmp/scene2.png',
+ *   '/tmp/full_audio.wav',
+ *   '/tmp/clip2.mp4',
+ *   15.0,    // Start at 15 seconds
+ *   12.5,    // 12.5 second duration
+ *   1
+ * );
  */
 function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, startTime, duration, clipIndex) {
     return new Promise((resolve, reject) => {
@@ -699,8 +838,9 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
             '-map', '0:v:0',
             '-map', '1:a:0',
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',  // Changed from 'fast' for much faster encoding
+            '-preset', 'veryfast',  // Changed from 'fast' for much faster encoding
             '-crf', '23',
+            '-threads', '0',
             '-c:a', 'aac',
             '-b:a', '192k',
             '-ar', '44100',
@@ -718,6 +858,21 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
 
 /**
  * Concatenate video clips with crossfade transitions
+ * 
+ * Combines multiple video clips into a single video file.
+ * For multiple clips, uses FFmpeg's concat demuxer for reliability.
+ * Handles single clip case by simple file copy.
+ * 
+ * @param {string[]} clipPaths - Array of absolute paths to video clip files to concatenate
+ * @param {string} outputPath - Absolute path for the final concatenated video
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
+ * @throws {Error} If no clips provided or FFmpeg concatenation fails
+ * 
+ * @example
+ * await concatenateClips(
+ *   ['/tmp/clip1.mp4', '/tmp/clip2.mp4', '/tmp/clip3.mp4'],
+ *   '/tmp/final_video.mp4'
+ * );
  */
 function concatenateClips(clipPaths, outputPath) {
     return new Promise((resolve, reject) => {
@@ -837,7 +992,20 @@ function mixBGMWithVideo(videoPath, bgmPath, outputPath, bgmVolume = 0.15) {
 }
 
 /**
- * Clean up temporary files
+ * Clean up temporary files from disk
+ * 
+ * Safely deletes temporary files created during video generation process.
+ * Ignores errors for files that don't exist or can't be deleted.
+ * 
+ * @param {string[]} filePaths - Array of absolute paths to temporary files to delete
+ * @returns {void}
+ * 
+ * @example
+ * cleanupTempFiles([
+ *   '/tmp/scene1.png',
+ *   '/tmp/audio1.wav',
+ *   '/tmp/clip1.mp4'
+ * ]);
  */
 function cleanupTempFiles(filePaths) {
     filePaths.forEach(filePath => {
@@ -1005,24 +1173,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             const sceneInfo = promptToSceneMap[i];
             const imagePath = path.join(TEMP_DIR, `${sessionId}_scene${sceneInfo.sceneIdx + 1}_img${sceneInfo.imgIdx + 1}.png`);
 
-            // SPECIAL RULE: For the VERY LAST image of the video, use the static Subscribe image (if it exists)
-            // This forces the "Subscribe" CTA to be exactly at the end
-            if (i === allImagePrompts.length - 1) {
-                const subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
-                if (fs.existsSync(subscribeImagePath)) {
-                    console.log(`Using static subscribe image for Final Scene, Final Image`);
-                    try {
-                        fs.copyFileSync(subscribeImagePath, imagePath);
-                        allImagePaths.push(imagePath);
-                        continue; // Skip AI generation
-                    } catch (err) {
-                        console.error("Failed to copy static subscribe image:", err);
-                        // Fallback to AI generation if copy fails
-                    }
-                } else {
-                    console.warn("Static subscribe image not found at:", subscribeImagePath);
-                }
-            }
+            // Generate all images normally - subscribe image will be added as a separate 5-second clip at the end
 
             console.log(`\n--- Generating image ${i + 1}/${totalImages} ---`);
             console.log(`Scene: ${sceneInfo.sceneIdx + 1}, Image: ${sceneInfo.imgIdx + 1}`);
@@ -1090,7 +1241,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             await generateAudio(audioScript, audioPath);
 
             if (i === 0) {
-                await addSilenceToAudio(audioPath, 2);
+                await addSilenceToAudio(audioPath, 1);
             }
 
             tempFiles.push(audioPath);
@@ -1120,39 +1271,116 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         });
 
         const clipPaths = [];
+        const subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
+        const hasSubscribeImage = fs.existsSync(subscribeImagePath);
+
         for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
             const audioPath = audioResults[sceneIdx].audioPath;
             const sceneDuration = audioDurations[sceneIdx];
             const sceneImages = sceneImageResults[sceneIdx];
             const numImages = sceneImages.length;
+            const isLastScene = sceneIdx === scenes.length - 1;
 
-            if (numImages === 1) {
-                const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
-                await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx);
-                clipPaths.push(clipPath);
-                tempFiles.push(clipPath);
-            } else {
+            // For the last scene, use subscribe image for the last 5 seconds
+            if (isLastScene && hasSubscribeImage && sceneDuration > 5) {
+                console.log(`Last scene detected. Duration: ${sceneDuration}s. Splitting for subscribe image.`);
                 const subClipPaths = [];
-                const segmentDuration = sceneDuration / numImages;
 
-                for (let imgIdx = 0; imgIdx < numImages; imgIdx++) {
-                    const subClipPath = path.join(TEMP_DIR, `${sessionId}_scene_${sceneIdx + 1}_subclip_${imgIdx + 1}.mp4`);
+                // First part: original images for (duration - 5) seconds
+                const firstPartDuration = sceneDuration - 5;
+                const firstPartClip = path.join(TEMP_DIR, `${sessionId}_scene_${sceneIdx + 1}_main.mp4`);
+
+                if (numImages === 1) {
+                    // Single image for the first part
                     await createVideoClipWithAudioSegment(
-                        sceneImages[imgIdx].imagePath,
+                        sceneImages[0].imagePath,
                         audioPath,
-                        subClipPath,
-                        imgIdx * segmentDuration,
-                        segmentDuration,
-                        sceneIdx * 10 + imgIdx
+                        firstPartClip,
+                        0,
+                        firstPartDuration,
+                        sceneIdx * 10
                     );
-                    subClipPaths.push(subClipPath);
-                    tempFiles.push(subClipPath);
-                }
+                } else {
+                    // Multiple images - distribute them across the first part
+                    const segmentDuration = firstPartDuration / numImages;
+                    const firstPartSubClips = [];
 
+                    for (let imgIdx = 0; imgIdx < numImages; imgIdx++) {
+                        const subClipPath = path.join(TEMP_DIR, `${sessionId}_scene_${sceneIdx + 1}_subclip_${imgIdx + 1}.mp4`);
+                        await createVideoClipWithAudioSegment(
+                            sceneImages[imgIdx].imagePath,
+                            audioPath,
+                            subClipPath,
+                            imgIdx * segmentDuration,
+                            segmentDuration,
+                            sceneIdx * 10 + imgIdx
+                        );
+                        firstPartSubClips.push(subClipPath);
+                        tempFiles.push(subClipPath);
+                    }
+
+                    await concatenateClips(firstPartSubClips, firstPartClip);
+                }
+                subClipPaths.push(firstPartClip);
+                tempFiles.push(firstPartClip);
+
+                // Second part: subscribe image for the last 5 seconds
+                const subscribeClip = path.join(TEMP_DIR, `${sessionId}_scene_${sceneIdx + 1}_subscribe.mp4`);
+                await createVideoClipWithAudioSegment(
+                    subscribeImagePath,
+                    audioPath,
+                    subscribeClip,
+                    firstPartDuration,  // Start from where first part ended
+                    5,  // 5 seconds duration
+                    sceneIdx * 10 + 99
+                );
+                subClipPaths.push(subscribeClip);
+                tempFiles.push(subscribeClip);
+
+                // Combine both parts
                 const sceneClipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
                 await concatenateClips(subClipPaths, sceneClipPath);
                 clipPaths.push(sceneClipPath);
                 tempFiles.push(sceneClipPath);
+
+            } else if (isLastScene && hasSubscribeImage && sceneDuration <= 5) {
+                // If last scene is 5 seconds or less, use subscribe image for entire scene
+                console.log(`Last scene is ${sceneDuration}s. Using subscribe image for entire scene.`);
+                const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
+                await createVideoClip(subscribeImagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                clipPaths.push(clipPath);
+                tempFiles.push(clipPath);
+
+            } else {
+                // Normal processing for non-last scenes or if no subscribe image
+                if (numImages === 1) {
+                    const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
+                    await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                    clipPaths.push(clipPath);
+                    tempFiles.push(clipPath);
+                } else {
+                    const subClipPaths = [];
+                    const segmentDuration = sceneDuration / numImages;
+
+                    for (let imgIdx = 0; imgIdx < numImages; imgIdx++) {
+                        const subClipPath = path.join(TEMP_DIR, `${sessionId}_scene_${sceneIdx + 1}_subclip_${imgIdx + 1}.mp4`);
+                        await createVideoClipWithAudioSegment(
+                            sceneImages[imgIdx].imagePath,
+                            audioPath,
+                            subClipPath,
+                            imgIdx * segmentDuration,
+                            segmentDuration,
+                            sceneIdx * 10 + imgIdx
+                        );
+                        subClipPaths.push(subClipPath);
+                        tempFiles.push(subClipPath);
+                    }
+
+                    const sceneClipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
+                    await concatenateClips(subClipPaths, sceneClipPath);
+                    clipPaths.push(sceneClipPath);
+                    tempFiles.push(sceneClipPath);
+                }
             }
 
             sendProgress(sessionId, {
@@ -1278,16 +1506,6 @@ app.post('/api/create-video', async (req, res) => {
         const scenes = scriptResult.scenes;
         const videoTitle = scriptResult.videoTitle || 'Untitled Video';
         const youtubeMetadata = scriptResult.youtube_metadata;
-
-        // FORCE STATIC SUBSCRIBE IMAGE PROMPT for Review UI clarity
-        if (scenes.length > 0) {
-            const lastScene = scenes[scenes.length - 1];
-            const prompts = lastScene.image_prompts || [lastScene.image_prompt];
-            if (prompts.length > 0) {
-                prompts[prompts.length - 1] = "🔒 [STATIC IMAGE] Using subscribe_image.png";
-                lastScene.image_prompts = prompts;
-            }
-        }
 
         console.log(`Script Generated: ${scenes.length} scenes`);
         console.log('DEBUG: youtubeMetadata in create-video:', JSON.stringify(youtubeMetadata, null, 2));

@@ -1,12 +1,37 @@
 {
     "name": "ai-video-service",
     "version": "1.0.0",
-    "description": "AI Video Generation Service with Gemini, ElevenLabs TTS, and FFmpeg",
+    "description": "AI-powered video generation service with multilingual narration, automated script writing, AI-generated visuals, and YouTube optimization. Supports Gujarati, Hindi, and English content creation.",
     "main": "index.js",
     "type": "module",
     "scripts": {
         "start": "node index.js",
         "dev": "node --watch index.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/rajhussainkanani/ai-video-service"
+    },
+    "keywords": [
+        "ai",
+        "video-generation",
+        "gemini",
+        "cartesia",
+        "tts",
+        "text-to-speech",
+        "ffmpeg",
+        "multilingual",
+        "gujarati",
+        "hindi",
+        "youtube",
+        "content-creation",
+        "ai-video",
+        "video-automation"
+    ],
+    "author": "Hykvra Solutions LLP (Raj Hussain Kanani)",
+    "license": "MIT",
+    "engines": {
+        "node": ">=18.0.0"
     },
     "dependencies": {
         "@cartesia/cartesia-js": "^2.2.9",
@@ -19,14 +44,5 @@
         "ffmpeg-static": "^5.2.0",
         "fluent-ffmpeg": "^2.1.2",
         "google-auth-library": "^10.5.0"
-    },
-    "keywords": [
-        "ai",
-        "video",
-        "gemini",
-        "elevenlabs",
-        "ffmpeg"
-    ],
-    "author": "",
-    "license": "MIT"
+    }
 }
