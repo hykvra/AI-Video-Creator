@@ -56,8 +56,8 @@ All scripts use native writing systems with proper pronunciation handling.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/rajhussainkanani/ai-video-service.git
-   cd ai-video-service
+   git clone https://github.com/hykvra/AI-Video-Creator.git
+   cd AI-Video-Creator
    ```
 
 2. **Install dependencies**
@@ -248,7 +248,7 @@ When `preview: true`, the server returns the script via SSE event `previewReady`
 ### Project Structure
 
 ```
-ai-video-service/
+AI-Video-Creator/
 ├── index.js                # Main Express server & video pipeline
 ├── VideoCreator.js         # React Native component (reference)
 ├── public/                 # Web frontend
@@ -424,8 +424,8 @@ Created by: RajHussain Kanani
 
 If you encounter any issues or have questions:
 
-- 📋 [Create an issue](https://github.com/hykvra/ai-video-service/issues)
-- 💬 Check existing [discussions](https://github.com/hykvra/ai-video-service/discussions)
+- 📋 [Create an issue](https://github.com/hykvra/AI-Video-Creator/issues)
+- 💬 Check existing [discussions](https://github.com/hykvra/AI-Video-Creator/discussions)
 - 📖 Review the [documentation](#-api-documentation)
 
 ---

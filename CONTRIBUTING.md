@@ -56,8 +56,8 @@ Before submitting:
 
 1. Clone your fork:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/ai-video-service.git
-   cd ai-video-service
+   git clone https://github.com/YOUR_USERNAME/AI-Video-Creator.git
+   cd AI-Video-Creator
    ```
 
 2. Install dependencies:
@@ -80,7 +80,7 @@ Before submitting:
 ## Project Structure
 
 ```
-ai-video-service/
+AI-Video-Creator/
 ├── index.js              # Main Express server and video pipeline
 ├── VideoCreator.js       # React Native component (reference)
 ├── public/               # Web frontend
@@ -110,7 +110,7 @@ If you have questions about contributing, feel free to:
 By contributing to this project, you agree that your contributions will be licensed under the MIT License.
 
 You also acknowledge that:
-- The original author is **Raj Hussain Kanani**
+- The original developers are **Hykvra Solutions LLP** (Created by Raj Hussain Kanani)
 - Users of derivative works must provide attribution
 - Your contributions become part of the open-source codebase
 

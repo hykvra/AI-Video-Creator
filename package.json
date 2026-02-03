@@ -1,5 +1,5 @@
 {
-    "name": "ai-video-service",
+    "name": "ai-video-creator",
     "version": "1.0.0",
     "description": "AI-powered video generation service with multilingual narration, automated script writing, AI-generated visuals, and YouTube optimization. Supports Gujarati, Hindi, and English content creation.",
     "main": "index.js",
@@ -10,7 +10,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/rajhussainkanani/ai-video-service"
+        "url": "https://github.com/hykvra/AI-Video-Creator"
     },
     "keywords": [
         "ai",
