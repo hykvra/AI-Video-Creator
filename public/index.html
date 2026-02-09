@@ -541,7 +541,13 @@
                 <div class="success-box">
                     <div class="success-icon">🎉</div>
                     <div class="success-title">Video Ready!</div>
-                    <a class="video-link" id="videoLink" target="_blank">▶️ Watch Video</a>
+                    <div id="videoContainer" style="margin-top: 20px; display: none;">
+                        <video id="successVideo" controls style="width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; height: 400px; background: #000;"></video>
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                            <a class="video-link" id="videoLink" target="_blank" style="flex: 1;">▶️ Watch Fullscreen</a>
+                            <a class="video-link" id="downloadLink" download style="flex: 1; background: linear-gradient(135deg, #3b82f6, #2563eb);">📥 Download Video</a>
+                        </div>
+                    </div>
                     <br>
                     <button class="reset-btn" onclick="resetForm()">Create Another Video</button>
                 </div>
@@ -863,7 +869,20 @@
             document.getElementById('btnText').textContent = 'Generate Video';
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('successSection').classList.add('visible');
+            
+            // Show video player and set links
+            const videoContainer = document.getElementById('videoContainer');
+            const successVideo = document.getElementById('successVideo');
+            const downloadLink = document.getElementById('downloadLink');
+            
+            videoContainer.style.display = 'block';
+            successVideo.src = videoUrl;
             document.getElementById('videoLink').href = videoUrl;
+            downloadLink.href = videoUrl;
+            
+            // Extract filename for download attribute
+            const filename = videoUrl.split('/').pop();
+            downloadLink.setAttribute('download', filename);
 
             // Render YouTube Metadata in Success Box
             const yt = youtubeMetadata || {};

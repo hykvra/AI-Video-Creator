@@ -18,7 +18,6 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { CartesiaClient } from '@cartesia/cartesia-js';
-import { Storage } from '@google-cloud/storage';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -60,9 +59,7 @@ if (process.env.CARTESIA_API_KEY) {
     console.log('Cartesia client initialized');
 }
 
-// Initialize Google Cloud Storage
-const storage = new Storage();
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'srk-ai-video-output';
+// Ensured directories exist
 
 
 
@@ -1022,80 +1019,6 @@ function cleanupTempFiles(filePaths) {
 }
 
 /**
- * Upload video to Google Cloud Storage and return signed URL
- * @param {string} localFilePath - Path to local video file
- * @param {string} destinationFileName - Name for the file in GCS
- * @returns {Promise<string>} Signed URL valid for 24 hours
- */
-async function uploadToGCS(localFilePath, destinationFileName) {
-    console.log(`[GCS Upload] Starting upload...`);
-    console.log(`[GCS Upload] Bucket: ${GCS_BUCKET_NAME}`);
-    console.log(`[GCS Upload] Local file: ${localFilePath}`);
-    console.log(`[GCS Upload] Destination: videos/${destinationFileName}`);
-
-    // Check if local file exists
-    if (!fs.existsSync(localFilePath)) {
-        throw new Error(`Local video file not found: ${localFilePath}`);
-    }
-
-    const fileStats = fs.statSync(localFilePath);
-    console.log(`[GCS Upload] File size: ${(fileStats.size / 1024 / 1024).toFixed(2)} MB`);
-
-    try {
-        const bucket = storage.bucket(GCS_BUCKET_NAME);
-        // Use the provided destination file name directly
-        const destination = destinationFileName;
-
-        // Determine content type
-        let contentType = 'application/octet-stream';
-
-        if (destination.endsWith('.mp4')) contentType = 'video/mp4';
-        else if (destination.endsWith('.png')) contentType = 'image/png';
-        else if (destination.endsWith('.jpg') || destination.endsWith('.jpeg')) contentType = 'image/jpeg';
-
-        // Upload the file
-        console.log(`[GCS Upload] Uploading to GCS...`);
-        console.log(`[GCS Upload] Content-Type: ${contentType}`);
-
-        await bucket.upload(localFilePath, {
-            destination: destination,
-            metadata: {
-                contentType: contentType,
-            },
-        });
-
-        console.log(`[GCS Upload] Upload successful!`);
-
-        // Get the blob reference for signed URL
-        const blob = bucket.file(destination);
-
-        // Generate signed URL valid for 24 hours
-        console.log(`[GCS Upload] Generating signed URL (24h expiry)...`);
-        const [signedUrl] = await blob.getSignedUrl({
-            version: 'v4',
-            action: 'read',
-            expires: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
-        });
-
-        console.log(`[GCS Upload] Signed URL generated successfully`);
-
-        // Clean up local file after upload
-        try {
-            fs.unlinkSync(localFilePath);
-            console.log(`[GCS Upload] Deleted local file: ${localFilePath}`);
-        } catch (err) {
-            console.error(`[GCS Upload] Failed to delete local file:`, err.message);
-        }
-
-        return signedUrl;
-    } catch (error) {
-        console.error(`[GCS Upload] ERROR:`, error.message);
-        console.error(`[GCS Upload] Full error:`, error);
-        throw new Error(`GCS upload failed: ${error.message}`);
-    }
-}
-
-/**
  * SSE endpoint for live progress updates
  */
 app.get('/api/progress/:sessionId', (req, res) => {
@@ -1406,17 +1329,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         const finalVideoPath = path.join(OUTPUT_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
         await concatenateClips(clipPaths, finalVideoPath);
 
-        // Upload
-        sendProgress(sessionId, {
-            step: 'upload',
-            status: 'in_progress',
-            message: 'Uploading video to cloud storage...',
-            sceneIndex: scenes.length,
-            totalScenes: scenes.length
-        });
-
-        const gcsFileName = `videos/${sanitizedTitle}_${sessionId}.mp4`;
-        const videoUrl = await uploadToGCS(finalVideoPath, gcsFileName);
+        const videoUrl = `/output/${path.basename(finalVideoPath)}`;
 
         // Cleanup
         cleanupTempFiles(tempFiles);
@@ -1435,18 +1348,15 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             console.log("Generating thumbnails for session:", sessionId);
             const thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
 
-            // Upload thumbnails to GCS
             for (let i = 0; i < thumbnailPaths.length; i++) {
-                const gcsThumbName = `thumbnails/${sanitizedTitle}_${sessionId}_thumb${i + 1}.png`;
-                const thumbUrl = await uploadToGCS(thumbnailPaths[i], gcsThumbName);
-                thumbnailUrls.push(thumbUrl);
+                thumbnailUrls.push(`/output/${path.basename(thumbnailPaths[i])}`);
             }
         }
 
         sendProgress(sessionId, {
             step: 'complete',
             status: 'completed',
-            message: 'Video ready! (Available for 24 hours)',
+            message: 'Video ready!',
             videoUrl: videoUrl,
             youtubeMetadata: {
                 ...youtubeMetadata,
@@ -1595,7 +1505,7 @@ async function generateThumbnails(prompts, sessionId) {
     const paths = [];
     for (let i = 0; i < prompts.length; i++) {
         const prompt = prompts[i];
-        const path = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
+        const path = `${OUTPUT_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
             await generateImage(prompt, path);

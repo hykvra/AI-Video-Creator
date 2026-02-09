@@ -35,7 +35,6 @@
     },
     "dependencies": {
         "@cartesia/cartesia-js": "^2.2.9",
-        "@google-cloud/storage": "^7.14.0",
         "@google/genai": "^1.35.0",
         "@google/generative-ai": "^0.21.0",
         "axios": "^1.6.2",
