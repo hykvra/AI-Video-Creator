@@ -249,7 +249,7 @@ async function generateScript(topic, targetDuration = 60, genre = 'informative',
 Create a compelling ${genre.toUpperCase()} video script for: "${topic}"
 
 Generate exactly ${numScenes} scenes for a ${targetDuration}-second video (9:16 aspect ratio, mobile-first).
-Each scene MUST have EXACTLY 3 image_prompts (no more, no less).
+Each scene MUST have EXACTLY 3 image_prompts (no more, no less), EXCEPT for the FINAL scene which MUST have EXACTLY 1 image_prompt.
 Each scene should have roughly ${avgSceneDuration} seconds of narration.
 
 CRITICAL REQUIREMENT - MALE NARRATOR MONOLOGUE:
@@ -281,95 +281,37 @@ Each scene needs 2-3 image prompts that show DIFFERENT MOMENTS in the narrative 
 - Each image should capture a different part of what's happening
 - Images should flow naturally like a storyboard
 
-EXAMPLE: If script says "The car was speeding on the highway and suddenly a bike appeared in front"
-- image_prompts[0]: "A sleek car speeding down a highway at high speed, motion blur, dramatic lighting"
-- image_prompts[1]: "A motorcycle suddenly appearing in front of a car on the highway, dangerous moment, dramatic angle"
+FINAL SCENE - CALL TO ACTION (CTA) & IMAGERY:
+- ONLY the very last scene should include the subscribe/CTA appeal in the narration audio.
+- DO NOT generate "Subscribe" buttons, channel logos, or CTA text in ANY image_prompts (including the final scene).
+- The system will AUTOMATICALLY show the subscribe screen; your image prompts should stay focused on the topic.
+- SCENES 1 to ${numScenes - 1}: Each requires EXACTLY 3 detailed English image prompts.
+- SCENE ${numScenes} (FINAL): Requires EXACTLY 1 detailed English image prompt focused on the topic (NOT subscribe).
 
 For each scene:
-1. image_prompts: Array of 2-3 detailed English image prompts showing different narrative moments. Use ${genreConfig.imageStyle}. Include a friendly male presenter/narrator in the visuals where appropriate.
-2. ${langConfig.fieldName}: ${langConfig.name} MONOLOGUE narration (~${avgSceneDuration} seconds when spoken). Write expressively with natural emotion and pacing. Single male narrator voice! Focus on storytelling and engagement.
+1. image_prompts: Array of 3 detailed English image prompts (1 for final scene). Use ${genreConfig.imageStyle}.
+2. ${langConfig.fieldName}: ${langConfig.name} MONOLOGUE narration (~${avgSceneDuration} seconds when spoken). Write expressively. Single male narrator voice!
 
 ${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STYLE: Write like a male stand-up comedian telling jokes and funny observations in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
 ${genre === 'storytelling' ? `STORYTELLING STYLE: Narrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
 ${genre === 'motivational' ? `MOTIVATIONAL STYLE: Use powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
-${genre === 'didyouknow' ? `DID YOU KNOW STYLE - CRITICAL STRUCTURE:
-This is a "Did You Know" fact video. The topic contains a HOOK and a FACT. Structure the scenes like this:
 
-SCENE 1 - THE HOOK (Grab attention):
-- Start with the surprising question/statement from the HOOK
-- Make it dramatic and attention-grabbing
-- Create curiosity - make viewers want to know more
-- Image should be dramatic with question marks or surprise elements
-- DO NOT include any subscribe/CTA content here
 
-SCENE 2 - THE REVEAL (Drop the bomb):
-- Reveal the main surprising fact
-- Confirm the hook with "Yes, it's true!" energy
-- Image should show the key fact visually
-- DO NOT include any subscribe/CTA content here
+${genre === 'didyouknow' ? `DID YOU KNOW STYLE: Structuring facts correctly with Hook, Reveal, and CTA.` : ''}
 
-SCENE 3-4 - THE DETAILS (Explain and expand):
-- Provide interesting details and context
-- Add more fascinating related facts
-- Make it educational yet entertaining
-- Images should illustrate the historical/factual context
-- DO NOT include any subscribe/CTA content here
+Make the content highly engaging. Use eleven_multilingual_v2 model.
 
-FINAL SCENE ONLY - THE CTA (Call to Action):
-- ONLY the very last scene should have subscribe/CTA content in the AUDIO SCRIPT
-- End with: "Subscribe for more facts from US!" or similar subscribe appeal in ${langConfig.name}
-- Make it engaging: "Agar aapko ye fact pasand aaya, toh subscribe karo for more!"
-- Keep the audio CTA short and punchy (3-5 seconds)
 
-CRITICAL WARNING - IMAGE PROMPTS FOR ALL SCENES:
-- DO NOT generate subscribe buttons, CTA text, "Subscribe" imagery, or channel-related visuals in ANY scene image_prompts
-- ALL scenes (including the final scene) must have image_prompts focused ONLY on the topic/fact content
-- The subscribe image will be AUTOMATICALLY displayed in the last 5 seconds by the system
-- For final scene images: show relevant topic visuals, historical imagery, or fact illustrations that match the narration
-- Example: If final scene talks about space while saying "subscribe", images should show SPACE content, NOT subscribe buttons
-
-Use phrases like:
-- "Kya aapko pata hai..." / "Did you know..."
-- "Haan, sach mein!" / "Yes, really!"
-- "Sochiye zara..." / "Just imagine..."
-- "Subscribe karo!" / "Subscribe for more!" (IN AUDIO ONLY, NOT IN IMAGE PROMPTS)` : ''}
-
-Make the content highly engaging and perfect for social media. Use the capabilities of the eleven_multilingual_v2 model to deliver a high-quality human-like narration.
-
-DID YOU KNOW STYLE:
-- Keep it conversational and engaging, like you're sharing an amazing fact with a friend
-- Use expressions of surprise and curiosity: "Believe it or not!", "Can you imagine?", "It's incredible!"
-- Make the viewer feel like they're learning something mind-blowing
-- End with energy and excitement, encouraging them to subscribe
-
-VIDEO TITLE (SLUG FORMAT):
-- Generate a URL-friendly video slug in English (max 40 characters)
-- MUST be lowercase, use hyphens instead of spaces, NO special characters
-- Only use letters (a-z), numbers (0-9), and hyphens (-)
-- Examples: "the-midnight-mystery", "indias-forgotten-secret", "truth-about-potatoes"
-- DO NOT use apostrophes, quotes, colons, or any other special characters
+VIDEO TITLE (SLUG FORMAT): URL-friendly English title.
 
 IMPORTANT: Return a JSON object with:
-1. "video_title": A slug-format English title (lowercase, hyphens, max 40 chars, e.g., "the-secret-forest")
-2. "scenes": Array of exactly ${numScenes} scenes, each with: scene_number, image_prompts (array of EXACTLY 3 prompts), and ${langConfig.fieldName}.
-3. "youtube_metadata": {
-    "title": "Viral YouTube Short Title (Clickbait/Hook style, max 60 chars)",
-    "description": "SEO-optimized YouTube Short description (100-150 words) including keywords and hashtags.",
-    "tags": ["tag1", "tag2", ... 10-15 high volume tags],
-    "thumbnail_prompts": [
-        "Description for high-CTR thumbnail 1 (visual, dramatic, clickable)",
-        "Description for high-CTR thumbnail 2 (different angle/concept)"
-    ]
-}
+1. "video_title": A slug-format English title.
+2. "scenes": Array of exactly ${numScenes} scenes, each with: scene_number, image_prompts (3 for scenes 1 to ${numScenes - 1}, EXACTLY 1 for final scene), and ${langConfig.fieldName}.
+3. "youtube_metadata": { "title", "description", "tags", "thumbnail_prompts" }
 
 CRITICAL - IMAGE PROMPT RULES:
-- Each image prompt must be a LITERAL VISUAL REPRESENTATION of the specific sentence it accompanies.
-- If the script says "lions hunt at night", the image MUST show a lion hunting at night.
-- If the script mentions a specific year or location, the image MUST reflect that era or place.
-- Do NOT use abstract concepts. Be descriptive and concrete.
-- Keep prompts English, detailed, and photorealistic.
-
-CRITICAL: Keep the JSON response complete and valid. Do not truncate.`;
+- Literal visual representation. Photorealistic.
+- Keep the JSON response complete and valid. Do not truncate.`;
 
     const result = await generateWithRetry(prompt);
     // New SDK returns text directly or via .text property
@@ -492,7 +434,7 @@ function createPlaceholderImage(outputPath) {
             );
 
             fs.writeFileSync(outputPath, darkPurplePNG);
-            console.log(`Created placeholder image: ${outputPath}`);
+            console.log(`Created placeholder image: ${outputPath} `);
             resolve(outputPath);
         } catch (error) {
             reject(error);
@@ -1100,84 +1042,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         const audioFieldName = languageFieldMap[selectedLanguage] || 'audio_script_gujarati';
 
         // Collect all image prompts
-        const allImagePrompts = [];
-        const promptToSceneMap = [];
-
-        for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
-            const scene = scenes[sceneIdx];
-            const availablePrompts = scene.image_prompts || [scene.image_prompt];
-
-            for (let imgIdx = 0; imgIdx < availablePrompts.length; imgIdx++) {
-                allImagePrompts.push(availablePrompts[imgIdx]);
-                promptToSceneMap.push({ sceneIdx, imgIdx });
-            }
-        }
-
-        const totalImages = allImagePrompts.length;
-
-        sendProgress(sessionId, {
-            step: 'image',
-            status: 'in_progress',
-            message: `Generating ${totalImages} images using Gemini API...`,
-            sceneIndex: 0,
-            totalScenes: scenes.length
-        });
-
-        const allImagePaths = [];
-        for (let i = 0; i < allImagePrompts.length; i++) {
-            const prompt = allImagePrompts[i];
-            const sceneInfo = promptToSceneMap[i];
-            const imagePath = path.join(TEMP_DIR, `${sessionId}_scene${sceneInfo.sceneIdx + 1}_img${sceneInfo.imgIdx + 1}.png`);
-
-            // Generate all images normally - subscribe image will be added as a separate 5-second clip at the end
-
-            console.log(`\n--- Generating image ${i + 1}/${totalImages} ---`);
-            console.log(`Scene: ${sceneInfo.sceneIdx + 1}, Image: ${sceneInfo.imgIdx + 1}`);
-
-            sendProgress(sessionId, {
-                step: 'image',
-                status: 'in_progress',
-                message: `Scene ${sceneInfo.sceneIdx + 1} - Image ${sceneInfo.imgIdx + 1} of ${totalImages}...`,
-                sceneIndex: sceneInfo.sceneIdx + 1,
-                totalScenes: scenes.length
-            });
-
-            await generateImage(prompt, imagePath);
-            allImagePaths.push(imagePath);
-            tempFiles.push(imagePath);
-
-            if (i < allImagePrompts.length - 1) {
-                await new Promise(r => setTimeout(r, 1000));
-            }
-        }
-
-        // Organize images
-        const sceneImageResults = [];
-        let imageIndex = 0;
-
-        for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
-            const scene = scenes[sceneIdx];
-            const imagesNeeded = (scene.image_prompts || [scene.image_prompt]).length;
-            const sceneImages = [];
-            for (let imgIdx = 0; imgIdx < imagesNeeded; imgIdx++) {
-                sceneImages.push({
-                    imagePath: allImagePaths[imageIndex],
-                    promptIdx: imgIdx
-                });
-                imageIndex++;
-            }
-            sceneImageResults.push(sceneImages);
-        }
-
-        sendProgress(sessionId, {
-            step: 'image',
-            status: 'completed',
-            message: `All ${totalImages} images generated successfully`,
-            sceneIndex: scenes.length,
-            totalScenes: scenes.length
-        });
-
-        // Step 3: Generate Audio
+        // Step 2: Generate Audio
         sendProgress(sessionId, {
             step: 'audio',
             status: 'in_progress',
@@ -1213,6 +1078,94 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             step: 'audio',
             status: 'completed',
             message: `All ${scenes.length} voiceovers generated`,
+            sceneIndex: scenes.length,
+            totalScenes: scenes.length
+        });
+
+        // Step 3: Generate Images
+        const allImagePrompts = [];
+        const promptToSceneMap = [];
+
+        for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
+            const scene = scenes[sceneIdx];
+            // SKIP image prompts for the final scene if duration is <= 5 seconds (it will be all subscribe image)
+            if (sceneIdx === scenes.length - 1 && audioDurations[sceneIdx] <= 5) {
+                console.log(`Optimization: Skipping AI image generation for final scene since duration is <= 5s.`);
+                continue;
+            }
+
+            const availablePrompts = scene.image_prompts || [scene.image_prompt];
+
+            for (let imgIdx = 0; imgIdx < availablePrompts.length; imgIdx++) {
+                allImagePrompts.push(availablePrompts[imgIdx]);
+                promptToSceneMap.push({ sceneIdx, imgIdx });
+            }
+        }
+
+        const totalImages = allImagePrompts.length;
+
+        sendProgress(sessionId, {
+            step: 'image',
+            status: 'in_progress',
+            message: `Generating ${totalImages} images using Gemini API...`,
+            sceneIndex: 0,
+            totalScenes: scenes.length
+        });
+
+        const allImagePaths = [];
+        for (let i = 0; i < allImagePrompts.length; i++) {
+            const prompt = allImagePrompts[i];
+            const sceneInfo = promptToSceneMap[i];
+            const imagePath = path.join(TEMP_DIR, `${sessionId}_scene${sceneInfo.sceneIdx + 1}_img${sceneInfo.imgIdx + 1}.png`);
+
+            console.log(`\n--- Generating image ${i + 1}/${totalImages} ---`);
+            console.log(`Scene: ${sceneInfo.sceneIdx + 1}, Image: ${sceneInfo.imgIdx + 1}`);
+
+            sendProgress(sessionId, {
+                step: 'image',
+                status: 'in_progress',
+                message: `Scene ${sceneInfo.sceneIdx + 1} - Image ${sceneInfo.imgIdx + 1} of ${totalImages}...`,
+                sceneIndex: sceneInfo.sceneIdx + 1,
+                totalScenes: scenes.length
+            });
+
+            await generateImage(prompt, imagePath);
+            allImagePaths.push(imagePath);
+            tempFiles.push(imagePath);
+
+            if (i < allImagePrompts.length - 1) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+
+        // Organize images
+        const sceneImageResults = [];
+        let imageIndex = 0;
+
+        for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
+            const scene = scenes[sceneIdx];
+            // Check if this scene was skipped
+            if (sceneIdx === scenes.length - 1 && audioDurations[sceneIdx] <= 5) {
+                sceneImageResults.push([]);
+                continue;
+            }
+
+            const imagesNeeded = (scene.image_prompts || [scene.image_prompt]).length;
+            const sceneImages = [];
+            for (let imgIdx = 0; imgIdx < imagesNeeded; imgIdx++) {
+                sceneImages.push({
+                    imagePath: allImagePaths[imageIndex],
+                    promptIdx: imgIdx
+                });
+                imageIndex++;
+            }
+            sceneImageResults.push(sceneImages);
+        }
+
+        sendProgress(sessionId, {
+            step: 'image',
+            status: 'completed',
+            message: `All ${totalImages} images generated successfully`,
             sceneIndex: scenes.length,
             totalScenes: scenes.length
         });
