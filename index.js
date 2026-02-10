@@ -19,6 +19,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { CartesiaClient } from '@cartesia/cartesia-js';
 import axios from 'axios';
+import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -44,6 +45,9 @@ app.use(express.json());
 // Serve static files from output directory
 app.use('/output', express.static(path.join(__dirname, 'output')));
 
+// Serve static files from assets directory
+app.use('/assest', express.static(path.join(__dirname, 'assest')));
+
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -66,9 +70,25 @@ if (process.env.CARTESIA_API_KEY) {
 // Ensure directories exist
 const TEMP_DIR = path.join(__dirname, 'temp');
 const OUTPUT_DIR = path.join(__dirname, 'output');
+const ASSETS_DIR = path.join(__dirname, 'assest');
+const CUSTOM_ASSETS_DIR = path.join(ASSETS_DIR, 'custom');
 
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+if (!fs.existsSync(CUSTOM_ASSETS_DIR)) fs.mkdirSync(CUSTOM_ASSETS_DIR, { recursive: true });
+
+// Configure multer for custom subscribe image uploads
+const storageConfig = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, CUSTOM_ASSETS_DIR);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const filename = `subscribe_${Date.now()}${ext}`;
+        cb(null, filename);
+    }
+});
+const upload = multer({ storage: storageConfig });
 
 // Store active SSE connections
 const activeConnections = new Map();
@@ -1037,6 +1057,17 @@ app.get('/api/progress/:sessionId', (req, res) => {
 });
 
 /**
+ * Upload endpoint for custom subscribe images
+ */
+app.post('/api/upload-subscribe-image', upload.single('subscribeImage'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+    const relativePath = `assest/custom/${req.file.filename}`;
+    res.json({ success: true, path: relativePath });
+});
+
+/**
  * Main video creation endpoint with SSE progress
  */
 // Store pending sessions for preview mode
@@ -1046,7 +1077,7 @@ const pendingSessions = new Map();
  * Process scenes to generate assets and final video
  * (Extracted from create-video for preview functionality)
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata) {
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage) {
     console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
     const tempFiles = []; // Track temp files for this processing session
 
@@ -1196,7 +1227,14 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         });
 
         const clipPaths = [];
-        const subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
+        // Use provided subscribe image or default
+        let subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
+        if (subscribeImage) {
+            const customPath = path.isAbsolute(subscribeImage) ? subscribeImage : path.join(__dirname, subscribeImage);
+            if (fs.existsSync(customPath)) {
+                subscribeImagePath = customPath;
+            }
+        }
         const hasSubscribeImage = fs.existsSync(subscribeImagePath);
 
         for (let sceneIdx = 0; sceneIdx < scenes.length; sceneIdx++) {
@@ -1381,7 +1419,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
  * Main video creation endpoint with SSE progress
  */
 app.post('/api/create-video', async (req, res) => {
-    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false } = req.body;
+    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
     const targetDuration = Math.max(30, Math.min(300, parseInt(duration) || 45));
     const validGenres = ['informative', 'comedy', 'storytelling', 'motivational', 'didyouknow'];
     const selectedGenre = validGenres.includes(genre) ? genre : 'informative';
@@ -1437,7 +1475,8 @@ app.post('/api/create-video', async (req, res) => {
                 scenes,
                 videoTitle,
                 selectedLanguage,
-                youtubeMetadata
+                youtubeMetadata,
+                subscribeImage
             });
 
             // Send preview data via SSE
@@ -1449,14 +1488,15 @@ app.post('/api/create-video', async (req, res) => {
                     videoTitle,
                     scenes,
                     language: selectedLanguage,
-                    youtubeMetadata
+                    youtubeMetadata,
+                    subscribeImage
                 }
             });
             return; // STOP HERE
         }
 
         // If not preview, proceed immediately
-        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata);
+        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage);
 
     } catch (error) {
         console.error('Script generation failed:', error);
@@ -1492,7 +1532,8 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.scenes,
         sessionData.videoTitle,
         sessionData.selectedLanguage,
-        sessionData.youtubeMetadata
+        sessionData.youtubeMetadata,
+        sessionData.subscribeImage
     );
 });
 
