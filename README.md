@@ -245,7 +245,7 @@ When `preview: true`, the server returns the script via SSE event `previewReady`
   "topic": "The Future of AI",
   "genre": "informative",
   "language": "english",
-  "subscribeImage": "assest/custom/subscribe_123456789.png"
+  "subscribeImage": "assest/custom/subscribe_image.png"
 }
 ```
 

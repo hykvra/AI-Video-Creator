@@ -262,12 +262,11 @@ LANGUAGE: Write ALL narration scripts in ${langConfig.name} language.
 - CRITICAL: Use NATIVE SCRIPT only (e.g., Devanagari for Hindi).
 - DO NOT use Hinglish or Romanized ${langConfig.name} (except for the required English numbers/years below).
 
-CRITICAL: ENGLISH NUMBERS & YEARS - SPELLED OUT
-- ALWAYS write years, dates, and all numbers using English words (e.g., "nineteen forty-seven" instead of 1947).
-- This is the ONLY way to force the Multilingual V2 model to pronounce them in ENGLISH within a ${langConfig.name} script.
-- DO NOT use Arabic numerals (e.g., 2025) or native language numerals.
-- Spell out EVERY SINGLE number in English words within the narration text.
-- STRICT FORMAT EXAMPLE: "नमस्ते! भारत nineteen forty-seven में आज़ाद हुआ था। आज की आबादी one point four billion से ज़्यादा है।"
+CRITICAL: NUMBERS & YEARS
+- Write years, dates, and all numbers as they would naturally appear in the target language (${langConfig.name}).
+- Ensure numbers are clear for text-to-speech synthesis (e.g., "1947" or "one thousand nine hundred and forty-seven" depending on what sounds most natural in ${langConfig.name}).
+- DO NOT force English spellings for numbers if they don't fit the flow of ${langConfig.name}.
+- The goal is a highly professional and "normal" sounding narration.
 
 STYLE REQUIREMENTS:
 - Visual Style: ${genreConfig.imageStyle}
@@ -299,7 +298,7 @@ ${genre === 'motivational' ? `MOTIVATIONAL STYLE: Use powerful, uplifting langua
 
 ${genre === 'didyouknow' ? `DID YOU KNOW STYLE: Structuring facts correctly with Hook, Reveal, and CTA.` : ''}
 
-Make the content highly engaging. Use eleven_multilingual_v2 model.
+Make the content highly engaging. Use Cartesia Sonic-3 model for high-quality multilingual narration.
 
 
 VIDEO TITLE (SLUG FORMAT): URL-friendly English title.
@@ -1210,8 +1209,15 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         });
 
         const clipPaths = [];
-        // Use provided subscribe image or default
+        // Use provided subscribe image or default (check both lowercase and title case for robustness)
         let subscribeImagePath = path.join(__dirname, 'assest', 'subscribe_image.png');
+        if (!fs.existsSync(subscribeImagePath)) {
+            const alternatePath = path.join(__dirname, 'assest', 'Subscribe_Image.png');
+            if (fs.existsSync(alternatePath)) {
+                subscribeImagePath = alternatePath;
+            }
+        }
+
         if (subscribeImage) {
             const customPath = path.isAbsolute(subscribeImage) ? subscribeImage : path.join(__dirname, subscribeImage);
             if (fs.existsSync(customPath)) {
