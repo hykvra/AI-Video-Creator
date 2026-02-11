@@ -913,6 +913,15 @@ function concatenateClips(clipPaths, outputPath) {
 
 /**
  * Mix background music with video at low volume
+ * 
+ * Uses FFmpeg to merge a background music track with the video's existing audio.
+ * The voice audio is boosted, and the BGM is looped and lowered in volume.
+ * 
+ * @param {string} videoPath - Absolute path to the source video file
+ * @param {string} bgmPath - Absolute path to the background music file
+ * @param {string} outputPath - Absolute path for the final mixed video
+ * @param {number} [bgmVolume=0.15] - Volume level for the background music (0.0 to 1.0)
+ * @returns {Promise<string>} Promise that resolves to the output path when complete
  */
 function mixBGMWithVideo(videoPath, bgmPath, outputPath, bgmVolume = 0.15) {
     return new Promise((resolve, reject) => {
@@ -982,6 +991,11 @@ function cleanupTempFiles(filePaths) {
 
 /**
  * SSE endpoint for live progress updates
+ * 
+ * Establish a Server-Sent Events connection to track the progress of a specific video session.
+ * 
+ * @name GET /api/progress/:sessionId
+ * @param {string} req.params.sessionId - The unique session ID for the video process
  */
 app.get('/api/progress/:sessionId', (req, res) => {
     const { sessionId } = req.params;
@@ -1000,6 +1014,12 @@ app.get('/api/progress/:sessionId', (req, res) => {
 
 /**
  * Upload endpoint for custom subscribe images
+ * 
+ * Handles multipart form upload of a custom image to be used for the subscribe call-to-action screen.
+ * 
+ * @name POST /api/upload-subscribe-image
+ * @param {File} req.file.subscribeImage - The uploaded image file
+ * @returns {Object} JSON response with status and relative path to the uploaded image
  */
 app.post('/api/upload-subscribe-image', upload.single('subscribeImage'), (req, res) => {
     if (!req.file) {
@@ -1017,7 +1037,17 @@ const pendingSessions = new Map();
 
 /**
  * Process scenes to generate assets and final video
- * (Extracted from create-video for preview functionality)
+ * 
+ * Orchestrates the entire video production pipeline: audio synthesis, image generation,
+ * clip creation, and final assembly into a single video file.
+ * 
+ * @param {string} sessionId - Unique session ID
+ * @param {Array} scenes - Array of scene objects from the script
+ * @param {string} videoTitle - Title for the video file
+ * @param {string} selectedLanguage - Language for the narration
+ * @param {Object} youtubeMetadata - Metadata for YouTube (title, description, etc.)
+ * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
+ * @returns {Promise<void>}
  */
 async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage) {
     console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
@@ -1370,6 +1400,20 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
 
 /**
  * Main video creation endpoint with SSE progress
+ * 
+ * Initiates the video creation process. If preview is true, it stops after script generation.
+ * Otherwise, it proceeds to full video production.
+ * 
+ * @name POST /api/create-video
+ * @param {string} topic - Topic for the video
+ * @param {string} [hook] - Hook for "didyouknow" genre
+ * @param {string} [fact] - Fact for "didyouknow" genre
+ * @param {number} [duration=60] - Target duration in seconds
+ * @param {string} [genre='informative'] - Video style/genre
+ * @param {string} [comedyLevel='mild'] - Comedy intensity
+ * @param {string} [language='gujarati'] - Narration language
+ * @param {boolean} [preview=false] - Whether to stop for preview review
+ * @param {string} [subscribeImage] - Optional custom subscribe image path
  */
 app.post('/api/create-video', async (req, res) => {
     const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
@@ -1463,6 +1507,11 @@ app.post('/api/create-video', async (req, res) => {
 
 /**
  * Confirm and resume video generation from preview
+ * 
+ * Resumes the video production process for a session that was paused for preview review.
+ * 
+ * @name POST /api/confirm-video
+ * @param {string} req.body.sessionId - The session ID to resume
  */
 app.post('/api/confirm-video', async (req, res) => {
     const { sessionId } = req.body;
@@ -1493,7 +1542,13 @@ app.post('/api/confirm-video', async (req, res) => {
 
 
 /**
- * Generate Thumbnails
+ * Generate Thumbnails for the video
+ * 
+ * Uses the image generation API to create viral-style thumbnails based on provided prompts.
+ * 
+ * @param {string[]} prompts - Array of image prompts for thumbnails
+ * @param {string} sessionId - Unique session ID
+ * @returns {Promise<string[]>} Array of absolute paths to generated thumbnail images
  */
 async function generateThumbnails(prompts, sessionId) {
     const paths = [];
@@ -1513,7 +1568,11 @@ async function generateThumbnails(prompts, sessionId) {
 
 /**
  * TEST ENDPOINT: Generate images only (no audio/video)
- * Use this to test batch image generation in isolation
+ * 
+ * A utility endpoint for testing image generation in isolation.
+ * 
+ * @name POST /api/test-images
+ * @param {string[]} req.body.prompts - Array of image prompts to test
  */
 app.post('/api/test-images', async (req, res) => {
     const { prompts } = req.body;
@@ -1563,7 +1622,11 @@ app.post('/api/test-images', async (req, res) => {
     }
 });
 
-// Health check endpoint
+/**
+ * Health check endpoint
+ * 
+ * Simple endpoint to verify the server is running and responding.
+ */
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });

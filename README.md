@@ -28,8 +28,8 @@ All scripts use native writing systems with proper pronunciation handling.
 
 ### 🎨 **AI-Powered Production**
 - **Script Generation** - Gemini 2.5 Flash creates engaging, genre-specific scripts
-- **Visual Creation** - Gemini 2.5 Flash Image generates scene-specific 9:16 vertical images
-- **Voice Synthesis** - Cartesia Sonic-3 TTS for natural multilingual narration
+- **Visual Creation** - Gemini 2.5 Flash Image generates scene-specific 9:16 vertical images. Optimized to skip AI generation for short final scenes to allow for seamless subscribe image transitions.
+- **Subscribe Screen** - Automatic insertion of a "Subscribe" call-to-action screen in the final seconds of every video.
 - **Video Effects** - Ken Burns animations, smooth crossfade transitions, 24fps output
 - **YouTube Optimization** - Auto-generated SEO titles, descriptions, tags, and thumbnail concepts
 
@@ -163,6 +163,23 @@ Resume video generation after script preview approval.
 
 ---
 
+### **POST** `/api/upload-subscribe-image`
+
+Upload a custom image to be used as the final subscribe/CTA screen.
+
+**Request Body:** `multipart/form-data`
+- `subscribeImage`: Image file (PNG/JPG)
+
+**Response:**
+```json
+{
+  "success": true,
+  "path": "assest/custom/subscribe_123456789.png"
+}
+```
+
+---
+
 ### **GET** `/api/health`
 
 Health check endpoint.
@@ -221,6 +238,16 @@ Health check endpoint.
 ```
 
 When `preview: true`, the server returns the script via SSE event `previewReady`. Review the script on the web UI, then call `/api/confirm-video` with the `sessionId` to proceed with video generation.
+
+### Example 5: Custom Subscribe Image
+```json
+{
+  "topic": "The Future of AI",
+  "genre": "informative",
+  "language": "english",
+  "subscribeImage": "assest/custom/subscribe_123456789.png"
+}
+```
 
 ---
 
