@@ -25,6 +25,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
+import sharp from 'sharp';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
@@ -92,6 +93,23 @@ function cleanImagePrompt(prompt) {
  * @param {string} title      - Title text to overlay (any supported script)
  * @param {string} language   - 'hindi' | 'gujarati' | 'english'
  */
+
+// Target thumbnail dimensions — portrait 720p (9:16)
+const THUMB_W = 720;
+const THUMB_H = 1280;
+
+/**
+ * Resize + center-crop an image to portrait 720×1280.
+ * Works regardless of whether the source is square (Gemini) or already 9:16 (Imagen).
+ */
+async function resizeToPortrait(imagePath) {
+    const buf = await sharp(imagePath)
+        .resize(THUMB_W, THUMB_H, { fit: 'cover', position: 'centre' })
+        .png()
+        .toBuffer();
+    fs.writeFileSync(imagePath, buf);
+}
+
 async function addTitleOverlay(imagePath, title, language = 'hindi') {
     const fontStack = THUMBNAIL_FONT[language] || THUMBNAIL_FONT.hindi;
     const cleanTitle = sanitizeTitleForCanvas(title);
@@ -1746,6 +1764,7 @@ app.post('/api/create-video', async (req, res) => {
                         try {
                             const cleanedPrompt = cleanImagePrompt(youtubeMetadata.thumbnail_prompts[i]);
                             await generateImage(cleanedPrompt, thumbPath, selectedGenre);
+                            await resizeToPortrait(thumbPath);
                             if (youtubeMetadata.title) {
                                 await addTitleOverlay(thumbPath, youtubeMetadata.title, selectedLanguage);
                             }
@@ -1864,6 +1883,7 @@ async function generateThumbnails(prompts, sessionId, genre = 'informative', tit
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
             await generateImage(cleanedPrompt, thumbPath, genre);
+            await resizeToPortrait(thumbPath);
             if (title) {
                 await addTitleOverlay(thumbPath, title, language);
                 console.log(`✓ Title overlay added to thumbnail ${i + 1}`);
