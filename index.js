@@ -331,12 +331,11 @@ For each scene:
 1. image_prompts: Array of 3 detailed English image prompts (1 for final scene). Use ${genreConfig.imageStyle}.
 2. ${langConfig.fieldName}: ${langConfig.name} MONOLOGUE narration (~${avgSceneDuration} seconds when spoken). Write expressively. Single male narrator voice!
 
-${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STYLE: Write like a male stand-up comedian telling jokes and funny observations in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
-${genre === 'storytelling' ? `STORYTELLING STYLE: Narrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
-${genre === 'motivational' ? `MOTIVATIONAL STYLE: Use powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
-
-
-${genre === 'didyouknow' ? `DID YOU KNOW STYLE: Structuring facts correctly with Hook, Reveal, and CTA.` : ''}
+${genre === 'informative' ? `INFORMATIVE STRUCTURE: Open with a compelling hook question that sparks curiosity. Then deliver 3 surprising key facts or insights with specific details (numbers, names, real examples). Close with a clear practical takeaway the viewer can use immediately. Each fact should feel like a "wow, I didn't know that" moment.` : ''}
+${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STRUCTURE: Use classic stand-up structure — start with a relatable setup (something everyone experiences), build with escalating observations that create tension, then land a punchline twist that reframes everything. Each scene should feel like a new joke beat. End with a callback that ties back to the opener.\n\nCOMEDY PHRASES: Write like a male stand-up comedian in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
+${genre === 'storytelling' ? `STORYTELLING STRUCTURE: Follow 3-act cinematic structure:\n- Act 1 (first scene): Introduce the character/setting vividly and the inciting incident\n- Act 2 (middle scenes): Build tension, conflict, or obstacle with emotional stakes\n- Act 3 (final scenes): Deliver the resolution, twist, or emotional payoff\nNarrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
+${genre === 'motivational' ? `MOTIVATIONAL STRUCTURE: Follow the transformation arc:\n- Pain point (open with a real struggle the viewer faces — make them feel understood)\n- Turning point (the key insight or mindset shift that changes everything)\n- New reality (paint a vivid picture of what life looks like after the transformation)\n- Call to action (one specific, concrete action the viewer can take today)\nUse powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
+${genre === 'didyouknow' ? `DID YOU KNOW STRUCTURE — follow this EXACTLY:\n- Scene 1 (HOOK): Open with a shocking "શું તમે જાણો છો..." style question. Build mystery and make the viewer NEED to know the answer. Do NOT reveal the fact yet.\n- Scene 2 (REVEAL): Deliver the surprising fact with specific details, numbers, names. Use a pivot like "Actually..." or "The truth is...". Explain why it matters.\n- Scene 3 (CTA): Connect the fact to the viewer's life with a takeaway. End with subscribe appeal.` : ''}
 
 Make the content highly engaging. Use Cartesia Sonic-3 model for high-quality multilingual narration.
 
@@ -616,10 +615,20 @@ async function generateImageImagen(prompt, outputPath, model, label) {
  *   3
  * );
  */
-async function generateAudio(text, outputPath, retries = 3) {
+async function generateAudio(text, outputPath, genre = 'informative', retries = 3) {
+    // Genre-specific base speaking speed (0.6–2.0 range for Cartesia sonic-3)
+    const GENRE_VOICE_SPEED = {
+        informative:  1.0,
+        comedy:       1.1,
+        storytelling: 0.9,
+        motivational: 1.0,
+        didyouknow:   1.0
+    };
+    const speed = GENRE_VOICE_SPEED[genre] || 1.0;
+
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            console.log(`Cartesia TTS attempt ${attempt}/${retries}...`);
+            console.log(`Cartesia TTS attempt ${attempt}/${retries} (genre: ${genre}, speed: ${speed})...`);
             console.log(`Text to synthesize: "${text}"`);
 
             // Check if Cartesia is initialized
@@ -637,6 +646,7 @@ async function generateAudio(text, outputPath, retries = 3) {
                     id: voiceId,
                 },
                 transcript: text,
+                ...(speed !== 1.0 && { generation_config: { speed } }),
                 outputFormat: {
                     container: "wav",
                     encoding: "pcm_f32le",
@@ -715,7 +725,7 @@ function getAudioDuration(audioPath) {
  * @example
  * await addSilenceToAudio('/tmp/narration.wav', 2.0); // Adds 2 seconds of silence
  */
-function addSilenceToAudio(inputPath, durationSeconds) {
+function addSilenceToAudio(inputPath, durationSeconds, tempoVariation = 1.0) {
     return new Promise((resolve, reject) => {
         const outputPath = inputPath.replace('.mp3', '_delayed.mp3');
 
@@ -723,13 +733,18 @@ function addSilenceToAudio(inputPath, durationSeconds) {
         // format: delay_ms|delay_ms (for stereo)
         const delayMs = durationSeconds * 1000;
 
+        // Chain adelay + optional atempo for subtle speed micro-variation
+        const filters = (tempoVariation !== 1.0)
+            ? [`adelay=${delayMs}|${delayMs}`, `atempo=${tempoVariation.toFixed(4)}`]
+            : [`adelay=${delayMs}|${delayMs}`];
+
         ffmpeg(inputPath)
-            .audioFilters(`adelay=${delayMs}|${delayMs}`)
+            .audioFilters(filters)
             .save(outputPath)
             .on('end', () => {
                 // Replace original file with delayed version
                 fs.renameSync(outputPath, inputPath);
-                console.log(`Added ${durationSeconds}s silence to: ${inputPath}`);
+                console.log(`Added ${durationSeconds}s silence (tempo: ${tempoVariation.toFixed(4)}x) to: ${inputPath}`);
                 resolve(inputPath);
             })
             .on('error', (err) => {
@@ -739,9 +754,34 @@ function addSilenceToAudio(inputPath, durationSeconds) {
     });
 }
 
+// Genre-specific animation profiles for Ken Burns effect
+const GENRE_ANIMATION_PROFILES = {
+    informative:  { zoomRange: [1.0, 1.07], panPool: ['tl-br', 'tr-bl', 'center-v'],          zoomVariance: 0.02 },
+    comedy:       { zoomRange: [1.0, 1.20], panPool: ['tl-br', 'tr-bl', 'bl-tr', 'center-v'], zoomVariance: 0.05 },
+    storytelling: { zoomRange: [1.0, 1.12], panPool: ['tl-br', 'bl-tr', 'center-v'],          zoomVariance: 0.03 },
+    motivational: { zoomRange: [1.05, 1.18], panPool: ['bl-tr', 'center-v', 'tl-br'],         zoomVariance: 0.03 },
+    didyouknow:   { zoomRange: [1.0, 1.15], panPool: ['tl-br', 'tr-bl', 'bl-tr', 'center-v'], zoomVariance: 0.04 }
+};
+
+const PAN_MAP = {
+    'tl-br':   { startX: '0',         startY: '0',         endX: '(iw-ow)',   endY: '(ih-oh)'   },
+    'tr-bl':   { startX: '(iw-ow)',   startY: '0',         endX: '0',         endY: '(ih-oh)'   },
+    'bl-tr':   { startX: '0',         startY: '(ih-oh)',   endX: '(iw-ow)',   endY: '0'         },
+    'center-v':{ startX: '(iw-ow)/2', startY: '0',         endX: '(iw-ow)/2', endY: '(ih-oh)'  }
+};
+
+// Genre-specific color grading filters
+const GENRE_COLOR_FILTERS = {
+    informative:  'eq=brightness=0.02:contrast=1.05:saturation=1.0',
+    comedy:       'eq=brightness=0.05:contrast=1.1:saturation=1.5,hue=s=1.3',
+    storytelling: 'eq=brightness=-0.04:contrast=1.2:saturation=0.8',
+    motivational: 'colorbalance=rs=0.08:gs=0.04:bs=-0.03,eq=brightness=0.04:contrast=1.1:saturation=1.2',
+    didyouknow:   'eq=brightness=-0.02:contrast=1.3:saturation=1.1'
+};
+
 /**
  * Create video clip from image and audio with Ken Burns effect
- * 
+ *
  * Generates a video clip by combining a static image with audio narration.
  * Applies Ken Burns effect (smooth zoom and pan animation) for visual interest.
  * Alternates between zoom-in and zoom-out based on scene index.
@@ -763,32 +803,31 @@ function addSilenceToAudio(inputPath, durationSeconds) {
  *   0
  * );
  */
-function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex) {
+function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex, genre = 'informative') {
     return new Promise((resolve, reject) => {
         const videoDuration = parseFloat(duration).toFixed(3);
         const fps = 24;  // Reduced from 30 for faster encoding
         const totalFrames = Math.ceil(videoDuration * fps);
 
-        // Ken Burns effect parameters - alternate between zoom-in and zoom-out
-        // Start with slight zoom out (1.15) and zoom in to 1.0, or vice versa
-        const isZoomIn = sceneIndex % 2 === 0;
-        const startZoom = isZoomIn ? 1.0 : 1.15;
-        const endZoom = isZoomIn ? 1.15 : 1.0;
+        // Genre-specific Ken Burns effect with randomized direction and variance
+        const profile = GENRE_ANIMATION_PROFILES[genre] || GENRE_ANIMATION_PROFILES.informative;
+        const isZoomIn = Math.random() > 0.5;
+        const baseStart = profile.zoomRange[0];
+        const baseEnd = profile.zoomRange[1];
+        const variance = (Math.random() - 0.5) * profile.zoomVariance;
+        const startZoom = isZoomIn ? baseStart : Math.max(baseStart, baseEnd + variance);
+        const endZoom = isZoomIn ? Math.max(baseStart, baseEnd + variance) : baseStart;
 
-        // Random pan direction
-        const panDirections = [
-            { startX: '0', startY: '0', endX: '(iw-ow)', endY: '(ih-oh)' },  // top-left to bottom-right
-            { startX: '(iw-ow)', startY: '0', endX: '0', endY: '(ih-oh)' },  // top-right to bottom-left
-            { startX: '0', startY: '(ih-oh)', endX: '(iw-ow)', endY: '0' },  // bottom-left to top-right
-            { startX: '(iw-ow)/2', startY: '0', endX: '(iw-ow)/2', endY: '(ih-oh)' },  // top to bottom center
-        ];
-        const pan = panDirections[sceneIndex % panDirections.length];
+        // Random pan direction from genre's pool
+        const panKey = profile.panPool[Math.floor(Math.random() * profile.panPool.length)];
+        const pan = PAN_MAP[panKey];
 
-        // Ken Burns filter: scale up image, then use zoompan for smooth zoom/pan
-        // Reduced scale from 8000 to 3000 for much faster processing
+        // Ken Burns + genre color grading filter
+        const colorFilter = GENRE_COLOR_FILTERS[genre] || GENRE_COLOR_FILTERS.informative;
         const kenBurnsFilter = [
             `scale=3000:-1`,
             `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='${pan.startX}+(${pan.endX}-(${pan.startX}))*(on/${totalFrames})':y='${pan.startY}+(${pan.endY}-(${pan.startY}))*(on/${totalFrames})':d=${totalFrames}:s=720x1280:fps=${fps}`,
+            colorFilter,
             `format=yuv420p`
         ].join(',');
 
@@ -841,30 +880,32 @@ function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex)
  *   1
  * );
  */
-function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, startTime, duration, clipIndex) {
+function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, startTime, duration, clipIndex, genre = 'informative') {
     return new Promise((resolve, reject) => {
         // Use exact duration without buffer to prevent overlap
         const exactDuration = parseFloat(duration).toFixed(3);
         const fps = 24;  // Reduced from 30 for faster encoding
         const totalFrames = Math.ceil(duration * fps);
 
-        // Ken Burns effect - alternate directions
-        const isZoomIn = clipIndex % 2 === 0;
-        const startZoom = isZoomIn ? 1.0 : 1.10;
-        const endZoom = isZoomIn ? 1.10 : 1.0;
+        // Genre-specific Ken Burns effect with randomized direction and variance
+        const profile = GENRE_ANIMATION_PROFILES[genre] || GENRE_ANIMATION_PROFILES.informative;
+        const isZoomIn = Math.random() > 0.5;
+        const baseStart = profile.zoomRange[0];
+        const baseEnd = profile.zoomRange[1];
+        const variance = (Math.random() - 0.5) * profile.zoomVariance;
+        const startZoom = isZoomIn ? baseStart : Math.max(baseStart, baseEnd + variance);
+        const endZoom = isZoomIn ? Math.max(baseStart, baseEnd + variance) : baseStart;
 
-        const panDirections = [
-            { startX: '0', startY: '0', endX: '(iw-ow)', endY: '(ih-oh)' },
-            { startX: '(iw-ow)', startY: '0', endX: '0', endY: '(ih-oh)' },
-            { startX: '0', startY: '(ih-oh)', endX: '(iw-ow)', endY: '0' },
-            { startX: '(iw-ow)/2', startY: '0', endX: '(iw-ow)/2', endY: '(ih-oh)' },
-        ];
-        const pan = panDirections[clipIndex % panDirections.length];
+        // Random pan direction from genre's pool
+        const panKey = profile.panPool[Math.floor(Math.random() * profile.panPool.length)];
+        const pan = PAN_MAP[panKey];
 
-        // Reduced scale from 8000 to 3000 for much faster processing
+        // Ken Burns + genre color grading filter
+        const colorFilter = GENRE_COLOR_FILTERS[genre] || GENRE_COLOR_FILTERS.informative;
         const kenBurnsFilter = [
             `scale=3000:-1`,
             `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='${pan.startX}+(${pan.endX}-(${pan.startX}))*(on/${totalFrames})':y='${pan.startY}+(${pan.endY}-(${pan.startY}))*(on/${totalFrames})':d=${totalFrames}:s=720x1280:fps=${fps}`,
+            colorFilter,
             `format=yuv420p`
         ].join(',');
 
@@ -1094,7 +1135,7 @@ const pendingSessions = new Map();
  * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
  * @returns {Promise<void>}
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, previewThumbnailPath = null) {
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, genre = 'informative', previewThumbnailPath = null) {
     console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
     const tempFiles = []; // Track temp files for this processing session
 
@@ -1126,18 +1167,22 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             totalScenes: scenes.length
         });
 
+        // Random ±3% tempo micro-variation — applied once per video for consistent pacing
+        const videoTempoVariation = 0.97 + Math.random() * 0.06;
+        console.log(`Video tempo variation: ${videoTempoVariation.toFixed(4)}x`);
+
         const audioResults = [];
         for (let i = 0; i < scenes.length; i++) {
             const scene = scenes[i];
             const audioPath = path.join(TEMP_DIR, `${sessionId}_scene_${i + 1}.mp3`);
             const audioScript = scene[audioFieldName];
 
-            console.log(`\n--- Generating audio for Scene ${i + 1} ---`);
+            console.log(`\n--- Generating audio for Scene ${i + 1} (genre: ${genre}) ---`);
 
-            await generateAudio(audioScript, audioPath);
+            await generateAudio(audioScript, audioPath, genre);
 
             if (i === 0) {
-                await addSilenceToAudio(audioPath, 1);
+                await addSilenceToAudio(audioPath, 1, videoTempoVariation);
             }
 
             tempFiles.push(audioPath);
@@ -1296,7 +1341,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                         firstPartClip,
                         0,
                         firstPartDuration,
-                        sceneIdx * 10
+                        sceneIdx * 10,
+                        genre
                     );
                 } else {
                     // Multiple images - distribute them across the first part
@@ -1311,7 +1357,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                             subClipPath,
                             imgIdx * segmentDuration,
                             segmentDuration,
-                            sceneIdx * 10 + imgIdx
+                            sceneIdx * 10 + imgIdx,
+                            genre
                         );
                         firstPartSubClips.push(subClipPath);
                         tempFiles.push(subClipPath);
@@ -1330,7 +1377,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                     subscribeClip,
                     firstPartDuration,  // Start from where first part ended
                     5,  // 5 seconds duration
-                    sceneIdx * 10 + 99
+                    sceneIdx * 10 + 99,
+                    genre
                 );
                 subClipPaths.push(subscribeClip);
                 tempFiles.push(subscribeClip);
@@ -1345,7 +1393,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 // If last scene is 5 seconds or less, use subscribe image for entire scene
                 console.log(`Last scene is ${sceneDuration}s. Using subscribe image for entire scene.`);
                 const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
-                await createVideoClip(subscribeImagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                await createVideoClip(subscribeImagePath, audioPath, clipPath, sceneDuration, sceneIdx, genre);
                 clipPaths.push(clipPath);
                 tempFiles.push(clipPath);
 
@@ -1353,7 +1401,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 // Normal processing for non-last scenes or if no subscribe image
                 if (numImages === 1) {
                     const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
-                    await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                    await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx, genre);
                     clipPaths.push(clipPath);
                     tempFiles.push(clipPath);
                 } else {
@@ -1368,7 +1416,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                             subClipPath,
                             imgIdx * segmentDuration,
                             segmentDuration,
-                            sceneIdx * 10 + imgIdx
+                            sceneIdx * 10 + imgIdx,
+                            genre
                         );
                         subClipPaths.push(subClipPath);
                         tempFiles.push(subClipPath);
@@ -1536,7 +1585,8 @@ app.post('/api/create-video', async (req, res) => {
                 videoTitle,
                 selectedLanguage,
                 youtubeMetadata,
-                subscribeImage
+                subscribeImage,
+                genre: selectedGenre
             });
 
             // Send preview data via SSE
@@ -1589,7 +1639,7 @@ app.post('/api/create-video', async (req, res) => {
         }
 
         // If not preview, proceed immediately
-        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage);
+        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, selectedGenre);
 
     } catch (error) {
         console.error('Script generation failed:', error);
@@ -1656,6 +1706,7 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.selectedLanguage,
         youtubeMetadata,
         sessionData.subscribeImage,
+        sessionData.genre || 'informative',
         previewThumbnailPath
     );
 });
