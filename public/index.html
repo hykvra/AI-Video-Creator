@@ -542,12 +542,7 @@
                 <input type="hidden" id="comedyLevel" value="mild">
             </div>
 
-            <!-- Preview Toggle -->
-            <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                <input type="checkbox" id="previewMode" style="width: 20px; height: 20px;" checked>
-                <label for="previewMode" style="margin: 0; font-size: 15px; cursor: pointer;">Review Script & Prompts
-                    before generating</label>
-            </div>
+            <!-- Preview Toggle removed as review is now mandatory -->
 
             <!-- End Screen Image Selection -->
             <div class="form-group">
@@ -581,7 +576,8 @@
                     <!-- Content injected here -->
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn btn-primary" onclick="confirmGeneration()" style="flex: 1;">✅ Approve &
+                    <button id="confirmBtn" class="btn btn-primary" onclick="confirmGeneration()" style="flex: 1;"
+                        disabled>✅ Approve &
                         Generate</button>
                     <button class="btn" onclick="cancelGeneration()"
                         style="flex: 1; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5);">❌
@@ -808,10 +804,9 @@
             const duration = parseInt(document.getElementById('duration').value) || 60;
             const comedyLevel = document.getElementById('comedyLevel').value || 'mild';
             const language = document.getElementById('language').value || 'gujarati';
-            const preview = document.getElementById('previewMode').checked;
             const subscribeImage = document.getElementById('selectedSubscribeImage').value;
 
-            let requestBody = { duration, genre, comedyLevel, language, preview, subscribeImage };
+            let requestBody = { duration, genre, comedyLevel, language, subscribeImage };
 
             // Handle Did You Know genre differently
             if (genre === 'didyouknow') {
@@ -908,20 +903,48 @@
             }
         }
 
+        function selectThumbnail(url) {
+            document.querySelectorAll('.thumbnail-option').forEach(img => {
+                img.style.borderColor = 'rgba(255,255,255,0.2)';
+                img.style.boxShadow = 'none';
+            });
+            const selectedImg = document.getElementById('thumb-' + btoa(url).replace(/=/g, ''));
+            if (selectedImg) {
+                selectedImg.style.borderColor = '#a855f7';
+                selectedImg.style.boxShadow = '0 0 0 3px rgba(168, 85, 247, 0.5)';
+            }
+            window.selectedThumbnailUrl = url;
+            document.getElementById('confirmBtn').disabled = false;
+        }
+
         function renderReviewContent(data) {
             const container = document.getElementById('reviewContent');
             const langKey = data.language === 'english' ? 'audio_script_english' :
                 data.language === 'hindi' ? 'audio_script_hindi' : 'audio_script_gujarati';
 
-            const yt = data.youtubeMetadata || {};
+            window.selectedThumbnailUrl = null; // Reset selection
+            document.getElementById('confirmBtn').disabled = true; // Disable until selected
 
-            let html = `<div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                <h4 style="color: #ec4899; margin-bottom: 8px;">📺 YouTube Shorts Metadata</h4>
-                <div style="margin-bottom: 8px;"><strong>Title:</strong> ${yt.title || 'N/A'}</div>
-                <div style="margin-bottom: 8px; font-size: 13px;"><strong>Description:</strong><br>${yt.description || 'N/A'}</div>
-                <div style="font-size: 12px;"><strong>Tags:</strong> ${(yt.tags || []).join(', ')}</div>
-            </div>
-            
+            let thumbnailsHtml = '';
+            if (data.thumbnailUrls && data.thumbnailUrls.length > 0) {
+                thumbnailsHtml = `
+                <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <h4 style="color: #ec4899; margin-bottom: 10px;">📸 Select a Thumbnail for YouTube Shorts</h4>
+                    <p style="font-size: 13px; color: #9ca3af; margin-bottom: 10px;">This will be shown for the first 1 second of the video.</p>
+                    <div style="display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px;">
+                        ${data.thumbnailUrls.map(url => `
+                            <img src="${url}" 
+                                 id="thumb-${btoa(url).replace(/=/g, '')}"
+                                 class="thumbnail-option"
+                                 onclick="selectThumbnail('${url}')"
+                                 style="height: 200px; border-radius: 8px; border: 3px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;" />
+                        `).join('')}
+                    </div>
+                </div>`;
+            }
+
+            let html = `
+            ${thumbnailsHtml}
             <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                 <strong>Script Title:</strong> ${data.videoTitle}<br>
                 <strong>Language:</strong> ${data.language}
@@ -948,6 +971,11 @@
         }
 
         async function confirmGeneration() {
+            if (!window.selectedThumbnailUrl) {
+                alert("Please select a thumbnail to proceed.");
+                return;
+            }
+
             document.getElementById('reviewSection').style.display = 'none';
             document.getElementById('btnText').textContent = 'Generating...';
             document.getElementById('spinner').style.display = 'block';
@@ -957,7 +985,10 @@
                 const response = await fetch('/api/confirm-video', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId: currentSessionId })
+                    body: JSON.stringify({ 
+                        sessionId: currentSessionId,
+                        selectedThumbnail: window.selectedThumbnailUrl
+                    })
                 });
 
                 const data = await response.json();
@@ -996,58 +1027,25 @@
             downloadLink.setAttribute('download', filename);
 
             // Render YouTube Metadata in Success Box
-            const yt = youtubeMetadata || {};
             const successBox = document.querySelector('.success-box');
 
-            // Remove existing metadata if any (to prevent duplicates on multiple runs)
+            // Remove existing metadata if any
             const existingMeta = document.getElementById('successMetadata');
             if (existingMeta) existingMeta.remove();
-
+            
+            // Only add the generated thumbnail link for download if desired, but we no longer need the big YouTube Meta block
             const metaDiv = document.createElement('div');
             metaDiv.id = 'successMetadata';
             metaDiv.style.marginTop = '20px';
-            metaDiv.style.textAlign = 'left';
-            metaDiv.style.background = 'rgba(0,0,0,0.2)';
-            metaDiv.style.padding = '15px';
-            metaDiv.style.borderRadius = '8px';
-
-            let thumbnailsHtml = '';
+            
             if (yt.thumbnails && yt.thumbnails.length > 0) {
-                thumbnailsHtml = `
-                <div style="margin-top: 15px;">
-                    <strong>📸 Viral Thumbnails:</strong>
-                    <div style="display: flex; gap: 10px; margin-top: 10px; overflow-x: auto;">
-                        ${yt.thumbnails.map(url => `
-                            <div>
-                                <img src="${url}" style="height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
-                                <div style="margin-top: 5px; text-align: center;">
-                                    <a href="${url}" target="_blank" style="color: #a855f7; font-size: 12px; text-decoration: none;">Download</a>
-                                </div>
-                            </div>
-                        `).join('')}
+                 metaDiv.innerHTML = `
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <a href="${yt.thumbnails[0]}" target="_blank" style="color: #a855f7; text-decoration: underline;">Download Selected Thumbnail</a>
                     </div>
-                </div>`;
+                 `;
+                 successBox.insertBefore(metaDiv, document.getElementById('videoLink'));
             }
-
-            metaDiv.innerHTML = `
-                <h4 style="color: #ec4899; margin-bottom: 10px; text-align: center;">COPY FOR YOUTUBE</h4>
-                <div style="margin-bottom: 10px;">
-                    <strong>TITLE:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 13px;">${yt.title || '-'}</div>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <strong>DESCRIPTION:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px; max-height: 100px; overflow-y: auto;">${yt.description || '-'}</div>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <strong>TAGS:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px;">${(yt.tags || []).join(', ')}</div>
-                </div>
-                ${thumbnailsHtml}
-            `;
-
-            // Insert before the "Watch Video" link or append
-            successBox.insertBefore(metaDiv, document.getElementById('videoLink'));
         }
 
         function showError(message) {

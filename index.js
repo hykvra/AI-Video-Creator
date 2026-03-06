@@ -52,7 +52,15 @@ app.use('/assest', express.static(path.join(__dirname, 'assest')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Initialize Google Generative AI (Gemini API)
-const googleAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Added httpOptions to send a Referer header, satisfying API key referrer restrictions
+const googleAI = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+        headers: {
+            'Referer': process.env.GEMINI_REFERER || 'https://aivideo.hykvra.in/'
+        }
+    }
+});
 
 // Initialize Cartesia client (optional - won't crash if API key missing)
 let cartesia = null;
@@ -306,7 +314,7 @@ VIDEO TITLE (SLUG FORMAT): URL-friendly English title.
 IMPORTANT: Return a JSON object with:
 1. "video_title": A slug-format English title.
 2. "scenes": Array of exactly ${numScenes} scenes, each with: scene_number, image_prompts (3 for scenes 1 to ${numScenes - 1}, EXACTLY 1 for final scene), and ${langConfig.fieldName}.
-3. "youtube_metadata": { "title", "description", "tags", "thumbnail_prompts" }
+3. "thumbnail_prompts": Array of 2 to 3 detailed, high-CTR thumbnail image concepts.
 
 CRITICAL - IMAGE PROMPT RULES:
 - Literal visual representation. Photorealistic.
@@ -379,8 +387,8 @@ CRITICAL - IMAGE PROMPT RULES:
         const videoTitle = jsonResponse.video_title || 'untitled-video';
         console.log('Video Title:', videoTitle);
         console.log('DEBUG: Full JSON Keys:', Object.keys(jsonResponse));
-        console.log('DEBUG: youtube_metadata present?:', !!jsonResponse.youtube_metadata);
-        console.log('DEBUG: YouTube Metadata content:', JSON.stringify(jsonResponse.youtube_metadata, null, 2));
+        console.log('DEBUG: thumbnail_prompts present?:', !!jsonResponse.thumbnail_prompts);
+        console.log('DEBUG: thumbnail_prompts content:', JSON.stringify(jsonResponse.thumbnail_prompts, null, 2));
 
         // Handle both { scenes: [...] } and direct array response
         let scenes;
@@ -394,7 +402,7 @@ CRITICAL - IMAGE PROMPT RULES:
         }
 
         // Return both title and scenes
-        return { videoTitle, scenes, youtube_metadata: jsonResponse.youtube_metadata };
+        return { videoTitle, scenes, thumbnail_prompts: jsonResponse.thumbnail_prompts };
     } catch (parseError) {
         console.error("JSON parse error:", parseError.message);
         console.error("Raw response:", text.substring(0, 1000));
@@ -1044,12 +1052,12 @@ const pendingSessions = new Map();
  * @param {Array} scenes - Array of scene objects from the script
  * @param {string} videoTitle - Title for the video file
  * @param {string} selectedLanguage - Language for the narration
- * @param {Object} youtubeMetadata - Metadata for YouTube (title, description, etc.)
+ * @param {string} selectedThumbnail - The URL/path of the thumbnail selected by the user
  * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
  * @returns {Promise<void>}
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage) {
-    console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, selectedThumbnail, subscribeImage) {
+    console.log(`DEBUG: processScenes received for ${sessionId}`);
     const tempFiles = []; // Track temp files for this processing session
 
     try {
@@ -1089,10 +1097,6 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             console.log(`\n--- Generating audio for Scene ${i + 1} ---`);
 
             await generateAudio(audioScript, audioPath);
-
-            if (i === 0) {
-                await addSilenceToAudio(audioPath, 1);
-            }
 
             tempFiles.push(audioPath);
             audioResults.push({ audioPath, index: i });
@@ -1348,10 +1352,51 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         sendProgress(sessionId, {
             step: 'assembly',
             status: 'in_progress',
-            message: 'Assembling final video...',
+            message: 'Adding Thumbnail Intro and Assembling final video...',
             sceneIndex: scenes.length,
             totalScenes: scenes.length
         });
+
+        // Create a 1-second silent thumbnail clip
+        // Since lavfi is not available, we can create the video clip without an audio track 
+        // and concatenateClips handles missing audio streams.
+        // Wait, createVideoClip requires an audioPath. We can pass null or an empty path 
+        // and modify createVideoClip, OR we can generate a silent audio file using a different method.
+        // Actually, we can generate a silent mp4 directly here instead of using createVideoClip.
+
+        const thumbnailClipPath = path.join(TEMP_DIR, `${sessionId}_thumbnail_clip.mp4`);
+        let localThumbnailPath = selectedThumbnail;
+        if (selectedThumbnail.startsWith('/')) {
+            localThumbnailPath = path.join(__dirname, selectedThumbnail);
+        }
+
+        const silenceAudioPath = path.join(TEMP_DIR, `${sessionId}_thumbnail_silence.wav`);
+        // Generate a 1-second 44.1kHz 16-bit mono silent WAV file natively in JS
+        const sr = 44100;
+        const dataSize = sr * 2; // 1 sec, 1 ch, 16-bit (2 bytes)
+        const silenceBuffer = Buffer.alloc(44 + dataSize);
+        silenceBuffer.write('RIFF', 0);
+        silenceBuffer.writeUInt32LE(36 + dataSize, 4);
+        silenceBuffer.write('WAVE', 8);
+        silenceBuffer.write('fmt ', 12);
+        silenceBuffer.writeUInt32LE(16, 16);
+        silenceBuffer.writeUInt16LE(1, 20); // PCM
+        silenceBuffer.writeUInt16LE(1, 22); // Mono
+        silenceBuffer.writeUInt32LE(sr, 24);
+        silenceBuffer.writeUInt32LE(sr * 2, 28);
+        silenceBuffer.writeUInt16LE(2, 32);
+        silenceBuffer.writeUInt16LE(16, 34);
+        silenceBuffer.write('data', 36);
+        silenceBuffer.writeUInt32LE(dataSize, 40);
+
+        fs.writeFileSync(silenceAudioPath, silenceBuffer);
+        tempFiles.push(silenceAudioPath);
+
+        await createVideoClip(localThumbnailPath, silenceAudioPath, thumbnailClipPath, 1.0, 0);
+        tempFiles.push(thumbnailClipPath);
+
+        // Prepend the thumbnail clip to the beginning of the video
+        clipPaths.unshift(thumbnailClipPath);
 
         const finalVideoPath = path.join(OUTPUT_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
         await concatenateClips(clipPaths, finalVideoPath);
@@ -1361,33 +1406,13 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         // Cleanup
         cleanupTempFiles(tempFiles);
 
-        // Generate Thumbnails if metadata exists
-        let thumbnailUrls = [];
-        if (youtubeMetadata && youtubeMetadata.thumbnail_prompts) {
-            sendProgress(sessionId, {
-                step: 'image',
-                status: 'in_progress',
-                message: 'Generating viral thumbnails...',
-                sceneIndex: scenes.length,
-                totalScenes: scenes.length
-            });
-
-            console.log("Generating thumbnails for session:", sessionId);
-            const thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
-
-            for (let i = 0; i < thumbnailPaths.length; i++) {
-                thumbnailUrls.push(`/output/${path.basename(thumbnailPaths[i])}`);
-            }
-        }
-
         sendProgress(sessionId, {
             step: 'complete',
             status: 'completed',
             message: 'Video ready!',
             videoUrl: videoUrl,
             youtubeMetadata: {
-                ...youtubeMetadata,
-                thumbnails: thumbnailUrls
+                thumbnails: [selectedThumbnail] // Still passing this for UI if needed
             },
             sceneIndex: scenes.length,
             totalScenes: scenes.length
@@ -1422,7 +1447,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
  * @param {string} [subscribeImage] - Optional custom subscribe image path
  */
 app.post('/api/create-video', async (req, res) => {
-    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
+    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', subscribeImage = null } = req.body;
+    const preview = true; // Review is now mandatory
     const targetDuration = Math.max(30, Math.min(300, parseInt(duration) || 45));
     const validGenres = ['informative', 'comedy', 'storytelling', 'motivational', 'didyouknow'];
     const selectedGenre = validGenres.includes(genre) ? genre : 'informative';
@@ -1458,10 +1484,27 @@ app.post('/api/create-video', async (req, res) => {
         const scriptResult = await generateScript(effectiveTopic, targetDuration, selectedGenre, selectedComedyLevel, selectedLanguage);
         const scenes = scriptResult.scenes;
         const videoTitle = scriptResult.videoTitle || 'Untitled Video';
-        const youtubeMetadata = scriptResult.youtube_metadata;
+        const thumbnailPrompts = scriptResult.thumbnail_prompts || [];
 
         console.log(`Script Generated: ${scenes.length} scenes`);
-        console.log('DEBUG: youtubeMetadata in create-video:', JSON.stringify(youtubeMetadata, null, 2));
+        console.log('DEBUG: thumbnailPrompts:', JSON.stringify(thumbnailPrompts, null, 2));
+
+        sendProgress(sessionId, {
+            step: 'image',
+            status: 'in_progress',
+            message: `Generating ${thumbnailPrompts.length} thumbnail options...`,
+            sceneIndex: 0,
+            totalScenes: scenes.length
+        });
+
+        const thumbnailUrls = [];
+        if (thumbnailPrompts.length > 0) {
+            console.log("Generating thumbnails for session:", sessionId);
+            const thumbnailPaths = await generateThumbnails(thumbnailPrompts, sessionId);
+            for (let i = 0; i < thumbnailPaths.length; i++) {
+                thumbnailUrls.push(`/output/${path.basename(thumbnailPaths[i])}`);
+            }
+        }
 
         sendProgress(sessionId, {
             step: 'script',
@@ -1478,7 +1521,7 @@ app.post('/api/create-video', async (req, res) => {
                 scenes,
                 videoTitle,
                 selectedLanguage,
-                youtubeMetadata,
+                thumbnailUrls,
                 subscribeImage
             });
 
@@ -1486,20 +1529,20 @@ app.post('/api/create-video', async (req, res) => {
             sendProgress(sessionId, {
                 step: 'previewReady',
                 status: 'waiting',
-                message: 'Script ready for review',
+                message: 'Script and thumbnails ready for review',
                 data: {
                     videoTitle,
                     scenes,
                     language: selectedLanguage,
-                    youtubeMetadata,
+                    thumbnailUrls,
                     subscribeImage
                 }
             });
             return; // STOP HERE
         }
 
-        // If not preview, proceed immediately
-        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage);
+        // If not preview, proceed immediately (this shouldn't happen anymore)
+        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, thumbnailUrls[0], subscribeImage);
 
     } catch (error) {
         console.error('Script generation failed:', error);
@@ -1520,10 +1563,14 @@ app.post('/api/create-video', async (req, res) => {
  * @param {string} req.body.sessionId - The session ID to resume
  */
 app.post('/api/confirm-video', async (req, res) => {
-    const { sessionId } = req.body;
+    const { sessionId, selectedThumbnail } = req.body;
 
     if (!sessionId || !pendingSessions.has(sessionId)) {
         return res.status(404).json({ success: false, error: 'Session not found or expired' });
+    }
+
+    if (!selectedThumbnail) {
+        return res.status(400).json({ success: false, error: 'Selected thumbnail is required' });
     }
 
     const sessionData = pendingSessions.get(sessionId);
@@ -1540,7 +1587,7 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.scenes,
         sessionData.videoTitle,
         sessionData.selectedLanguage,
-        sessionData.youtubeMetadata,
+        selectedThumbnail,
         sessionData.subscribeImage
     );
 });
