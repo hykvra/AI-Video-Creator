@@ -77,6 +77,10 @@ function getGoogleAI() {
     return _googleAI;
 }
 
+// Circuit breaker: if Gemini hits 429 twice consecutively, skip it for 3 minutes
+let geminiRateLimitedUntil = 0;
+let geminiConsecutive429s = 0;
+
 // Initialize Cartesia client (optional - won't crash if API key missing)
 let cartesia = null;
 if (process.env.CARTESIA_API_KEY) {
@@ -496,70 +500,76 @@ function createPlaceholderImage(outputPath) {
  * );
  */
 async function generateImage(prompt, outputPath, retries = 5) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            console.log(`Gemini Image attempt ${attempt}/${retries}...`);
+    const imagenFallbacks = [
+        { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
+        { model: 'imagen-4.0-generate-preview-06-06',      label: 'Imagen 4' },
+        { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
+    ];
 
-            const response = await getGoogleAI().models.generateContent({
-                model: "gemini-2.5-flash-image",
-                contents: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
-            });
+    // Circuit breaker: skip Gemini if it has been rate-limited recently
+    if (Date.now() < geminiRateLimitedUntil) {
+        console.log(`Gemini circuit breaker active (rate-limited). Going straight to Imagen fallback...`);
+    } else {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(`Gemini Image attempt ${attempt}/${retries}...`);
 
-            // Parse response for image data
-            let imageSaved = false;
+                const response = await getGoogleAI().models.generateContent({
+                    model: "gemini-2.5-flash-image",
+                    contents: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
+                });
 
-            if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
-                for (const part of response.candidates[0].content.parts) {
-                    if (part.inlineData) {
-                        const imageData = part.inlineData.data;
-                        const buffer = Buffer.from(imageData, "base64");
-                        fs.writeFileSync(outputPath, buffer);
-                        console.log(`✓ Image saved: ${outputPath}`);
-                        imageSaved = true;
-                        return outputPath;
+                let imageSaved = false;
+                if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
+                    for (const part of response.candidates[0].content.parts) {
+                        if (part.inlineData) {
+                            const buffer = Buffer.from(part.inlineData.data, "base64");
+                            fs.writeFileSync(outputPath, buffer);
+                            console.log(`✓ Image saved: ${outputPath}`);
+                            geminiConsecutive429s = 0; // reset on success
+                            return outputPath;
+                        }
                     }
                 }
-            }
+                if (!imageSaved) throw new Error('No image inlineData in Gemini response');
 
-            if (!imageSaved) {
-                throw new Error('No image inlineData in Gemini response');
-            }
+            } catch (error) {
+                console.error(`Gemini Image attempt ${attempt} failed:`, error.message);
 
-        } catch (error) {
-            console.error(`Gemini Image attempt ${attempt} failed:`, error.message);
-
-            if (error.response) {
-                console.error('Failure details:', JSON.stringify(error.response, null, 2));
-            }
-
-            if (attempt < retries) {
-                // Use longer backoff for rate-limit errors (429)
                 const isRateLimit = error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED'));
-                const waitTime = isRateLimit ? attempt * 10000 : attempt * 2000; // 10s/20s/30s for 429, 2s/4s otherwise
-                console.log(`Retrying in ${waitTime / 1000} seconds...`);
-                await new Promise(r => setTimeout(r, waitTime));
-                continue;
-            }
 
-            // Fallback chain: Imagen 4 Fast → Imagen 4 → Imagen 3 Fast → placeholder
-            console.log('All Gemini Image attempts failed. Trying Imagen fallback chain...');
-            const imagenFallbacks = [
-                { model: 'imagen-4.0-fast-generate-preview-05-20', label: 'Imagen 4 Fast' },
-                { model: 'imagen-4.0-generate-preview-05-20',      label: 'Imagen 4' },
-                { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
-            ];
-            for (const fallback of imagenFallbacks) {
-                try {
-                    return await generateImageImagen(prompt, outputPath, fallback.model, fallback.label);
-                } catch (imagenError) {
-                    console.error(`${fallback.label} fallback failed:`, imagenError.message);
+                if (isRateLimit) {
+                    geminiConsecutive429s++;
+                    // After 2 consecutive 429s on first attempt, trip the breaker for 3 minutes
+                    if (geminiConsecutive429s >= 2) {
+                        geminiRateLimitedUntil = Date.now() + 3 * 60 * 1000;
+                        console.log(`Gemini circuit breaker tripped (${geminiConsecutive429s} consecutive 429s). Skipping Gemini for 3 minutes.`);
+                        break; // skip remaining retries, go straight to Imagen
+                    }
+                }
+
+                if (attempt < retries) {
+                    const waitTime = isRateLimit ? attempt * 10000 : attempt * 2000;
+                    console.log(`Retrying in ${waitTime / 1000} seconds...`);
+                    await new Promise(r => setTimeout(r, waitTime));
+                    continue;
                 }
             }
-            console.log('All Imagen fallbacks failed. Using placeholder image...');
-            await createPlaceholderImage(outputPath);
-            return outputPath;
         }
     }
+
+    // Fallback chain: Imagen 4 Fast → Imagen 4 → Imagen 3 Fast → placeholder
+    console.log('Trying Imagen fallback chain...');
+    for (const fallback of imagenFallbacks) {
+        try {
+            return await generateImageImagen(prompt, outputPath, fallback.model, fallback.label);
+        } catch (imagenError) {
+            console.error(`${fallback.label} fallback failed:`, imagenError.message);
+        }
+    }
+    console.log('All Imagen fallbacks failed. Using placeholder image...');
+    await createPlaceholderImage(outputPath);
+    return outputPath;
 }
 
 /**
