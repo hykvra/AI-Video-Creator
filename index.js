@@ -498,12 +498,23 @@ function createPlaceholderImage(outputPath) {
  *   3
  * );
  */
-async function generateImage(prompt, outputPath, retries = 5) {
+const GENRE_IMAGE_PROMPT_PREFIX = {
+    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition. 9:16 vertical for mobile.`,
+    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor. 9:16 vertical for mobile.`,
+    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth. 9:16 vertical for mobile.`,
+    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing. 9:16 vertical for mobile.`,
+    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly. 9:16 vertical for mobile.`
+};
+
+async function generateImage(prompt, outputPath, genre = 'informative', retries = 5) {
     const imagenFallbacks = [
-        { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
         { model: 'imagen-4.0-generate-preview-06-06',      label: 'Imagen 4' },
+        { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
         { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
     ];
+
+    const promptPrefix = GENRE_IMAGE_PROMPT_PREFIX[genre] || GENRE_IMAGE_PROMPT_PREFIX.informative;
+    const fullPrompt = `${promptPrefix} ${prompt}`;
 
     // Circuit breaker: skip Gemini if it has been rate-limited recently
     if (Date.now() < geminiRateLimitedUntil) {
@@ -514,8 +525,11 @@ async function generateImage(prompt, outputPath, retries = 5) {
                 console.log(`Gemini Image attempt ${attempt}/${retries}...`);
 
                 const response = await getGoogleAI().models.generateContent({
-                    model: "gemini-2.5-flash-image",
-                    contents: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
+                    model: "gemini-2.5-flash-preview-05-20",
+                    contents: fullPrompt,
+                    generationConfig: {
+                        responseModalities: ['IMAGE'],
+                    },
                 });
 
                 let imageSaved = false;
@@ -557,11 +571,11 @@ async function generateImage(prompt, outputPath, retries = 5) {
         }
     }
 
-    // Fallback chain: Imagen 4 Fast → Imagen 4 → Imagen 3 Fast → placeholder
+    // Fallback chain: Imagen 4 → Imagen 4 Fast → Imagen 3 Fast → placeholder
     console.log('Trying Imagen fallback chain...');
     for (const fallback of imagenFallbacks) {
         try {
-            return await generateImageImagen(prompt, outputPath, fallback.model, fallback.label);
+            return await generateImageImagen(fullPrompt, outputPath, fallback.model, fallback.label);
         } catch (imagenError) {
             console.error(`${fallback.label} fallback failed:`, imagenError.message);
         }
@@ -578,7 +592,7 @@ async function generateImageImagen(prompt, outputPath, model, label) {
     console.log(`Generating image with ${label} (${model})...`);
     const response = await getGoogleAI().models.generateImages({
         model,
-        prompt: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
+        prompt,
         config: {
             numberOfImages: 1,
             aspectRatio: '9:16',
@@ -1249,7 +1263,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 totalScenes: scenes.length
             });
 
-            await generateImage(prompt, imagePath);
+            await generateImage(prompt, imagePath, genre);
             allImagePaths.push(imagePath);
             tempFiles.push(imagePath);
 
@@ -1474,7 +1488,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 console.log(`Using pre-generated preview thumbnail: ${previewThumbnailPath}`);
             } else {
                 console.log("Generating thumbnails for session:", sessionId);
-                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
+                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId, genre);
             }
 
             for (let i = 0; i < thumbnailPaths.length; i++) {
@@ -1614,7 +1628,7 @@ app.post('/api/create-video', async (req, res) => {
                         if (ctrl.aborted) break;
                         const thumbPath = path.join(TEMP_DIR, `${sessionId}_preview_thumb_${i + 1}.png`);
                         try {
-                            await generateImage(youtubeMetadata.thumbnail_prompts[i], thumbPath);
+                            await generateImage(youtubeMetadata.thumbnail_prompts[i], thumbPath, selectedGenre);
                             if (ctrl.aborted) break; // user confirmed while we were generating
                             const sess = pendingSessions.get(sessionId);
                             if (sess) {
@@ -1722,14 +1736,14 @@ app.post('/api/confirm-video', async (req, res) => {
  * @param {string} sessionId - Unique session ID
  * @returns {Promise<string[]>} Array of absolute paths to generated thumbnail images
  */
-async function generateThumbnails(prompts, sessionId) {
+async function generateThumbnails(prompts, sessionId, genre = 'informative') {
     const paths = [];
     for (let i = 0; i < prompts.length; i++) {
         const prompt = prompts[i];
         const path = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
-            await generateImage(prompt, path);
+            await generateImage(prompt, path, genre);
             paths.push(path);
         } catch (e) {
             console.error(`Thumbnail ${i + 1} failed:`, e);
