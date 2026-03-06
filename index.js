@@ -1084,6 +1084,29 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
  *   '/tmp/final_video.mp4'
  * );
  */
+/**
+ * Convert a still image into a 1-second silent video clip (for thumbnail prepend)
+ */
+function createThumbnailClip(imagePath, outputPath, width = 720, height = 1280) {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(imagePath)
+            .inputOptions(['-loop', '1', '-t', '1'])
+            .outputOptions([
+                '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-pix_fmt', 'yuv420p',
+                '-an',          // no audio — will be handled by concat re-encode
+                '-r', '30',
+            ])
+            .output(outputPath)
+            .on('end', () => resolve(outputPath))
+            .on('error', reject)
+            .run();
+    });
+}
+
 function concatenateClips(clipPaths, outputPath) {
     return new Promise((resolve, reject) => {
         if (clipPaths.length === 0) {
@@ -1613,6 +1636,23 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
 
             for (let i = 0; i < thumbnailPaths.length; i++) {
                 thumbnailUrls.push(`/api/thumbnail/${sessionId}/${i}`);
+            }
+        }
+
+        // Prepend thumbnail as a 1-second still frame so YouTube can use it as a custom thumbnail
+        if (thumbnailPaths.length > 0) {
+            try {
+                const thumbClipPath = path.join(TEMP_DIR, `thumb_clip_${sessionId}.mp4`);
+                const prependedVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}_final.mp4`);
+                console.log('Prepending 1-second thumbnail frame to video...');
+                await createThumbnailClip(thumbnailPaths[0], thumbClipPath);
+                await concatenateClips([thumbClipPath, finalVideoPath], prependedVideoPath);
+                fs.unlinkSync(thumbClipPath);
+                fs.unlinkSync(finalVideoPath);
+                fs.renameSync(prependedVideoPath, finalVideoPath);
+                console.log('✓ Thumbnail frame prepended to video.');
+            } catch (thumbErr) {
+                console.error('Failed to prepend thumbnail frame (non-fatal):', thumbErr.message);
             }
         }
 
