@@ -58,12 +58,18 @@ app.use('/assest', express.static(path.join(__dirname, 'assest')));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Google GenAI via Vertex AI
-const googleAI = new GoogleGenAI({
-    vertexai: true,
-    project: process.env.GCP_PROJECT_ID,
-    location: process.env.GCP_LOCATION || 'us-central1',
-});
+// Initialize Google GenAI via Vertex AI (lazy — created on first use to avoid startup crash)
+let _googleAI = null;
+function getGoogleAI() {
+    if (!_googleAI) {
+        _googleAI = new GoogleGenAI({
+            vertexai: true,
+            project: process.env.GCP_PROJECT_ID,
+            location: process.env.GCP_LOCATION || 'us-central1',
+        });
+    }
+    return _googleAI;
+}
 
 // Initialize Cartesia client (optional - won't crash if API key missing)
 let cartesia = null;
@@ -239,7 +245,7 @@ async function generateScript(topic, targetDuration = 60, genre = 'informative',
             console.log(`Trying script generation with model: ${modelName}`);
             try {
                 // New SDK usage
-                const response = await googleAI.models.generateContent({
+                const response = await getGoogleAI().models.generateContent({
                     model: modelName,
                     contents: promptText,
                     config: { responseMimeType: "application/json" }
@@ -475,7 +481,7 @@ async function generateImage(prompt, outputPath, retries = 3) {
         try {
             console.log(`Gemini Image attempt ${attempt}/${retries}...`);
 
-            const response = await googleAI.models.generateContent({
+            const response = await getGoogleAI().models.generateContent({
                 model: "gemini-2.5-flash-image",
                 contents: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
             });
