@@ -640,8 +640,8 @@ const GENRE_IMAGE_PROMPT_PREFIX = {
     didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly.`
 };
 
-async function generateImage(prompt, outputPath, genre = 'informative', retries = 5) {
-    const imagenFallbacks = [
+async function generateImage(prompt, outputPath, genre = 'informative') {
+    const imagenChain = [
         { model: 'imagen-4.0-generate-preview-06-06',      label: 'Imagen 4' },
         { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
         { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
@@ -650,72 +650,48 @@ async function generateImage(prompt, outputPath, genre = 'informative', retries 
     const promptPrefix = GENRE_IMAGE_PROMPT_PREFIX[genre] || GENRE_IMAGE_PROMPT_PREFIX.informative;
     const fullPrompt = `${promptPrefix} ${prompt}`;
 
-    // Circuit breaker: skip Gemini if it has been rate-limited recently
-    if (Date.now() < geminiRateLimitedUntil) {
-        console.log(`Gemini circuit breaker active (rate-limited). Going straight to Imagen fallback...`);
-    } else {
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            try {
-                console.log(`Gemini Image attempt ${attempt}/${retries}...`);
+    // Primary: try Imagen chain (production models, higher quota)
+    for (const model of imagenChain) {
+        try {
+            return await generateImageImagen(fullPrompt, outputPath, model.model, model.label);
+        } catch (err) {
+            const isRateLimit = err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED'));
+            console.error(`${model.label} failed${isRateLimit ? ' (rate-limited)' : ''}:`, err.message);
+            // On rate limit, stop trying Imagen variants — they share the same quota pool
+            if (isRateLimit) break;
+        }
+    }
 
-                const response = await getGoogleAI().models.generateContent({
-                    model: "gemini-2.5-flash-image",
-                    contents: fullPrompt,
-                    generationConfig: {
-                        responseModalities: ['IMAGE'],
-                    },
-                });
-
-                let imageSaved = false;
-                if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
-                    for (const part of response.candidates[0].content.parts) {
-                        if (part.inlineData) {
-                            const buffer = Buffer.from(part.inlineData.data, "base64");
-                            fs.writeFileSync(outputPath, buffer);
-                            console.log(`✓ Image saved: ${outputPath}`);
-                            geminiConsecutive429s = 0; // reset on success
-                            return outputPath;
-                        }
+    // Bonus: try Gemini Flash Image if Imagen failed (not rate-limited)
+    if (Date.now() >= geminiRateLimitedUntil) {
+        try {
+            console.log('Imagen failed. Trying Gemini Flash Image as bonus...');
+            const response = await getGoogleAI().models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: fullPrompt,
+                generationConfig: { responseModalities: ['IMAGE'] },
+            });
+            if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) {
+                        fs.writeFileSync(outputPath, Buffer.from(part.inlineData.data, 'base64'));
+                        console.log(`✓ Gemini image saved: ${outputPath}`);
+                        geminiConsecutive429s = 0;
+                        return outputPath;
                     }
                 }
-                if (!imageSaved) throw new Error('No image inlineData in Gemini response');
-
-            } catch (error) {
-                console.error(`Gemini Image attempt ${attempt} failed:`, error.message);
-
-                const isRateLimit = error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED'));
-
-                if (isRateLimit) {
-                    geminiConsecutive429s++;
-                    if (geminiConsecutive429s >= 2) {
-                        geminiRateLimitedUntil = Date.now() + 3 * 60 * 1000;
-                        console.log(`Gemini circuit breaker tripped (${geminiConsecutive429s} consecutive 429s). Skipping Gemini for 3 minutes.`);
-                    }
-                    // On any 429, immediately fall back to Imagen — no point retrying an exhausted quota
-                    console.log('Gemini rate-limited. Falling back to Imagen immediately...');
-                    break;
-                }
-
-                if (attempt < retries) {
-                    const waitTime = attempt * 2000;
-                    console.log(`Retrying in ${waitTime / 1000} seconds...`);
-                    await new Promise(r => setTimeout(r, waitTime));
-                    continue;
-                }
+            }
+        } catch (err) {
+            const isRateLimit = err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED'));
+            console.error(`Gemini Image failed${isRateLimit ? ' (rate-limited)' : ''}:`, err.message);
+            if (isRateLimit) {
+                geminiConsecutive429s++;
+                geminiRateLimitedUntil = Date.now() + 3 * 60 * 1000;
             }
         }
     }
 
-    // Fallback chain: Imagen 4 → Imagen 4 Fast → Imagen 3 Fast → placeholder
-    console.log('Trying Imagen fallback chain...');
-    for (const fallback of imagenFallbacks) {
-        try {
-            return await generateImageImagen(fullPrompt, outputPath, fallback.model, fallback.label);
-        } catch (imagenError) {
-            console.error(`${fallback.label} fallback failed:`, imagenError.message);
-        }
-    }
-    console.log('All Imagen fallbacks failed. Using placeholder image...');
+    console.log('All image models failed. Using placeholder...');
     await createPlaceholderImage(outputPath);
     return outputPath;
 }
