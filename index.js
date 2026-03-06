@@ -1238,10 +1238,19 @@ app.get('/api/progress/:sessionId', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable Railway/nginx proxy buffering for SSE
+    res.flushHeaders(); // Send headers immediately so the client knows the stream is open
 
     activeConnections.set(sessionId, res);
 
+    // Periodic heartbeat — prevents Railway's 60-second idle connection timeout from
+    // dropping the SSE stream mid-generation (especially during slow thumbnail steps)
+    const heartbeat = setInterval(() => {
+        if (res.writable) res.write(': heartbeat\n\n');
+    }, 20000);
+
     req.on('close', () => {
+        clearInterval(heartbeat);
         activeConnections.delete(sessionId);
     });
 });
