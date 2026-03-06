@@ -519,14 +519,6 @@
                     placeholder="e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration..."></textarea>
             </div>
 
-            <!-- Did You Know Fields (Hidden by default) -->
-            <div class="form-group" id="didYouKnowSection" style="display: none;">
-                <label for="hook">🎣 The Hook (Attention-grabbing question)</label>
-                <textarea id="hook" placeholder="e.g., Did you know honey never spoils?"
-                    style="min-height: 80px;"></textarea>
-                <label for="fact" style="margin-top: 16px;">📖 The Fact (Detailed explanation)</label>
-                <textarea id="fact" placeholder="e.g., Archaeologists found 3000 year old honey..."></textarea>
-            </div>
 
             <!-- Comedy Level Selector (appears when Comedy is selected) -->
             <div class="form-group" id="comedyLevelSection" style="display: none;">
@@ -779,15 +771,12 @@
             const comedyLevelSection = document.getElementById('comedyLevelSection');
             comedyLevelSection.style.display = genre === 'comedy' ? 'block' : 'none';
 
-            // Show/hide Did You Know fields and Topic field
-            const didYouKnowSection = document.getElementById('didYouKnowSection');
-            const topicGroup = document.getElementById('topic').parentElement;
+            // Update topic placeholder for Did You Know
+            const topicTextarea = document.getElementById('topic');
             if (genre === 'didyouknow') {
-                didYouKnowSection.style.display = 'block';
-                topicGroup.style.display = 'none';
+                topicTextarea.placeholder = 'e.g., Honey never spoils — archaeologists found 3000-year-old edible honey in Egyptian tombs';
             } else {
-                didYouKnowSection.style.display = 'none';
-                topicGroup.style.display = 'block';
+                topicTextarea.placeholder = 'e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration...';
             }
         }
 
@@ -821,24 +810,12 @@
 
             let requestBody = { duration, genre, comedyLevel, language, preview, subscribeImage };
 
-            // Handle Did You Know genre differently
-            if (genre === 'didyouknow') {
-                const hook = document.getElementById('hook').value.trim();
-                const fact = document.getElementById('fact').value.trim();
-                if (!hook || !fact) {
-                    alert('Please enter both the Hook and the Fact');
-                    return;
-                }
-                requestBody.hook = hook;
-                requestBody.fact = fact;
-            } else {
-                const topic = document.getElementById('topic').value.trim();
-                if (!topic) {
-                    alert('Please enter a topic');
-                    return;
-                }
-                requestBody.topic = topic;
+            const topic = document.getElementById('topic').value.trim();
+            if (!topic) {
+                alert('Please enter a topic');
+                return;
             }
+            requestBody.topic = topic;
 
             // Reset UI
             document.getElementById('generateBtn').disabled = true;
@@ -1126,8 +1103,6 @@
         function resetForm() {
             resetTimer(); // Reset the timer
             document.getElementById('topic').value = '';
-            document.getElementById('hook').value = '';
-            document.getElementById('fact').value = '';
             document.getElementById('progressSection').classList.remove('visible');
             document.getElementById('successSection').classList.remove('visible');
             document.getElementById('reviewSection').style.display = 'none';

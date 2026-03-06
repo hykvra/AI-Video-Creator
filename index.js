@@ -469,7 +469,7 @@ ${genre === 'informative' ? `INFORMATIVE STRUCTURE: Open with a compelling hook 
 ${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STRUCTURE: Use classic stand-up structure — start with a relatable setup (something everyone experiences), build with escalating observations that create tension, then land a punchline twist that reframes everything. Each scene should feel like a new joke beat. End with a callback that ties back to the opener.\n\nCOMEDY PHRASES: Write like a male stand-up comedian in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
 ${genre === 'storytelling' ? `STORYTELLING STRUCTURE: Follow 3-act cinematic structure:\n- Act 1 (first scene): Introduce the character/setting vividly and the inciting incident\n- Act 2 (middle scenes): Build tension, conflict, or obstacle with emotional stakes\n- Act 3 (final scenes): Deliver the resolution, twist, or emotional payoff\nNarrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
 ${genre === 'motivational' ? `MOTIVATIONAL STRUCTURE: Follow the transformation arc:\n- Pain point (open with a real struggle the viewer faces — make them feel understood)\n- Turning point (the key insight or mindset shift that changes everything)\n- New reality (paint a vivid picture of what life looks like after the transformation)\n- Call to action (one specific, concrete action the viewer can take today)\nUse powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
-${genre === 'didyouknow' ? `DID YOU KNOW STRUCTURE — follow this EXACTLY:\n- Scene 1 (HOOK): Open with a shocking "શું તમે જાણો છો..." style question. Build mystery and make the viewer NEED to know the answer. Do NOT reveal the fact yet.\n- Scene 2 (REVEAL): Deliver the surprising fact with specific details, numbers, names. Use a pivot like "Actually..." or "The truth is...". Explain why it matters.\n- Scene 3 (CTA): Connect the fact to the viewer's life with a takeaway. End with subscribe appeal.` : ''}
+${genre === 'didyouknow' ? `DID YOU KNOW STRUCTURE — follow this EXACTLY. You are given one topic/fact — craft the hook question yourself from it:\n- Scene 1 (HOOK): Open with a shocking "શું તમે જાણો છો..." style question you invent from the topic. Build mystery and make the viewer NEED to know the answer. Do NOT reveal the fact yet.\n- Scene 2 (REVEAL): Deliver the surprising fact with specific details, numbers, names. Use a pivot like "Actually..." or "The truth is...". Explain why it matters.\n- Scene 3 (CTA): Connect the fact to the viewer's life with a takeaway. End with subscribe appeal.` : ''}
 
 Make the content highly engaging. Use Cartesia Sonic-3 model for high-quality multilingual narration.
 
@@ -1675,8 +1675,6 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
  * 
  * @name POST /api/create-video
  * @param {string} topic - Topic for the video
- * @param {string} [hook] - Hook for "didyouknow" genre
- * @param {string} [fact] - Fact for "didyouknow" genre
  * @param {number} [duration=60] - Target duration in seconds
  * @param {string} [genre='informative'] - Video style/genre
  * @param {string} [comedyLevel='mild'] - Comedy intensity
@@ -1685,7 +1683,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
  * @param {string} [subscribeImage] - Optional custom subscribe image path
  */
 app.post('/api/create-video', async (req, res) => {
-    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
+    const { topic, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
     const targetDuration = Math.max(30, Math.min(300, parseInt(duration) || 45));
     const validGenres = ['informative', 'comedy', 'storytelling', 'motivational', 'didyouknow'];
     const selectedGenre = validGenres.includes(genre) ? genre : 'informative';
@@ -1696,15 +1694,11 @@ app.post('/api/create-video', async (req, res) => {
     const sessionId = Date.now().toString();
 
     // Validation
-    if (selectedGenre === 'didyouknow') {
-        if (!hook || !fact) {
-            return res.status(400).json({ success: false, error: 'Hook and Fact required' });
-        }
-    } else if (!topic) {
+    if (!topic) {
         return res.status(400).json({ success: false, error: 'Topic is required' });
     }
 
-    const effectiveTopic = selectedGenre === 'didyouknow' ? `HOOK: ${hook}\n\nFACT: ${fact}` : topic;
+    const effectiveTopic = topic;
 
     res.json({ success: true, sessionId, message: 'Video creation started' });
 
