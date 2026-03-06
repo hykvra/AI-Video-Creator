@@ -919,12 +919,11 @@
         }
 
         function selectThumbnail(index) {
-            // Deselect all cards then highlight the chosen one
             document.querySelectorAll('[id^="thumbCard_"]').forEach((card, i) => {
                 const selected = i === index;
                 card.style.border = selected ? '2px solid #a855f7' : '2px solid rgba(255,255,255,0.1)';
                 card.style.background = selected ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)';
-                const label = card.querySelector('div');
+                const label = document.getElementById(`thumbLabel_${i}`);
                 if (label) {
                     label.style.color = selected ? '#c084fc' : '#9ca3af';
                     label.textContent = `${selected ? '✅' : '⬜'} Option ${i + 1}`;

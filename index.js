@@ -1094,7 +1094,7 @@ const pendingSessions = new Map();
  * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
  * @returns {Promise<void>}
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage) {
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, previewThumbnailPath = null) {
     console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
     const tempFiles = []; // Track temp files for this processing session
 
@@ -1419,8 +1419,14 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 totalScenes: scenes.length
             });
 
-            console.log("Generating thumbnails for session:", sessionId);
-            thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
+            if (previewThumbnailPath) {
+                // Reuse the image the user already saw during review — no extra generation
+                thumbnailPaths = [previewThumbnailPath];
+                console.log(`Using pre-generated preview thumbnail: ${previewThumbnailPath}`);
+            } else {
+                console.log("Generating thumbnails for session:", sessionId);
+                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
+            }
 
             for (let i = 0; i < thumbnailPaths.length; i++) {
                 thumbnailUrls.push(`/api/thumbnail/${sessionId}/${i}`);
@@ -1549,15 +1555,21 @@ app.post('/api/create-video', async (req, res) => {
 
             // Generate thumbnail previews in the background so user can see them during review
             if (youtubeMetadata && youtubeMetadata.thumbnail_prompts && youtubeMetadata.thumbnail_prompts.length > 0) {
+                const ctrl = { aborted: false };
+                const session = pendingSessions.get(sessionId);
+                if (session) session.previewCtrl = ctrl;
+
                 (async () => {
                     for (let i = 0; i < youtubeMetadata.thumbnail_prompts.length; i++) {
+                        if (ctrl.aborted) break;
                         const thumbPath = path.join(TEMP_DIR, `${sessionId}_preview_thumb_${i + 1}.png`);
                         try {
                             await generateImage(youtubeMetadata.thumbnail_prompts[i], thumbPath);
-                            const session = pendingSessions.get(sessionId);
-                            if (session) {
-                                if (!session.previewThumbnailPaths) session.previewThumbnailPaths = [];
-                                session.previewThumbnailPaths[i] = thumbPath;
+                            if (ctrl.aborted) break; // user confirmed while we were generating
+                            const sess = pendingSessions.get(sessionId);
+                            if (sess) {
+                                if (!sess.previewThumbnailPaths) sess.previewThumbnailPaths = [];
+                                sess.previewThumbnailPaths[i] = thumbPath;
                             }
                             sendProgress(sessionId, {
                                 step: 'thumbnailPreview',
@@ -1606,12 +1618,16 @@ app.post('/api/confirm-video', async (req, res) => {
     const sessionData = pendingSessions.get(sessionId);
     pendingSessions.delete(sessionId); // Clear from memory
 
+    // Abort background thumbnail preview generation so it doesn't compete with processScenes
+    if (sessionData.previewCtrl) sessionData.previewCtrl.aborted = true;
+
     res.json({ success: true, message: 'Resuming video generation' });
 
     console.log(`Resuming session ${sessionId} after preview approval`);
 
     // Filter thumbnail prompts to only the user-selected one
     const youtubeMetadata = { ...sessionData.youtubeMetadata };
+    let previewThumbnailPath = null;
     if (
         youtubeMetadata.thumbnail_prompts &&
         youtubeMetadata.thumbnail_prompts.length > 0 &&
@@ -1623,6 +1639,12 @@ app.post('/api/confirm-video', async (req, res) => {
             youtubeMetadata.thumbnail_prompts = [chosen];
             console.log(`Thumbnail option ${idx + 1} selected: "${chosen}"`);
         }
+        // Reuse preview thumbnail if already generated — saves quota and ensures same image user saw
+        const preview = sessionData.previewThumbnailPaths && sessionData.previewThumbnailPaths[idx];
+        if (preview && fs.existsSync(preview)) {
+            previewThumbnailPath = preview;
+            console.log(`Reusing already-generated preview thumbnail for option ${idx + 1}`);
+        }
     }
 
     // Resume processing
@@ -1632,7 +1654,8 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.videoTitle,
         sessionData.selectedLanguage,
         youtubeMetadata,
-        sessionData.subscribeImage
+        sessionData.subscribeImage,
+        previewThumbnailPath
     );
 });
 
