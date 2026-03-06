@@ -755,7 +755,7 @@ function addSilenceToAudio(inputPath, durationSeconds) {
  */
 function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex) {
     return new Promise((resolve, reject) => {
-        const videoDuration = (parseFloat(duration) + 0.5).toFixed(2);
+        const videoDuration = parseFloat(duration).toFixed(3);
         const fps = 24;  // Reduced from 30 for faster encoding
         const totalFrames = Math.ceil(videoDuration * fps);
 
@@ -922,44 +922,6 @@ function concatenateClips(clipPaths, outputPath) {
             return;
         }
 
-        // For crossfade, we need to use xfade filter
-        // This requires knowing each clip's duration and applying sequential fades
-        const fadeDuration = 0.5; // 0.5 second crossfade
-
-        // Build the complex filter for crossfade
-        // We'll use xfade filter chaining
-        const ffmpegCmd = ffmpeg();
-
-        // Add all inputs
-        clipPaths.forEach(clipPath => {
-            ffmpegCmd.input(clipPath);
-        });
-
-        // Build xfade filter chain
-        let filterComplex = '';
-        let lastOutput = '[0:v]';
-        let audioFilters = '';
-        let lastAudioOutput = '[0:a]';
-
-        for (let i = 1; i < clipPaths.length; i++) {
-            const currentOutput = i === clipPaths.length - 1 ? '[outv]' : `[v${i}]`;
-            const currentAudioOutput = i === clipPaths.length - 1 ? '[outa]' : `[a${i}]`;
-
-            // Get approximate offset (we'll use a generic value since we don't know exact durations here)
-            // The xfade offset is when the transition starts
-            filterComplex += `${lastOutput}[${i}:v]xfade=transition=fade:duration=${fadeDuration}:offset=8${currentOutput};`;
-            audioFilters += `${lastAudioOutput}[${i}:a]acrossfade=d=${fadeDuration}${currentAudioOutput};`;
-
-            lastOutput = currentOutput;
-            lastAudioOutput = currentAudioOutput;
-        }
-
-        // Remove trailing semicolon
-        filterComplex = filterComplex.slice(0, -1);
-        audioFilters = audioFilters.slice(0, -1);
-
-        // For simplicity with variable durations, use concat filter with fade between
-        // This is more reliable than xfade which needs exact timing
         const concatFilePath = path.join(TEMP_DIR, 'concat_list.txt');
         const fileList = clipPaths.map(p => `file '${p}'`).join('\n');
         fs.writeFileSync(concatFilePath, fileList);
