@@ -495,7 +495,7 @@ function createPlaceholderImage(outputPath) {
  *   3
  * );
  */
-async function generateImage(prompt, outputPath, retries = 3) {
+async function generateImage(prompt, outputPath, retries = 5) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             console.log(`Gemini Image attempt ${attempt}/${retries}...`);
@@ -529,12 +529,13 @@ async function generateImage(prompt, outputPath, retries = 3) {
             console.error(`Gemini Image attempt ${attempt} failed:`, error.message);
 
             if (error.response) {
-                // Log fuller error if available
                 console.error('Failure details:', JSON.stringify(error.response, null, 2));
             }
 
             if (attempt < retries) {
-                const waitTime = attempt * 2000;
+                // Use longer backoff for rate-limit errors (429)
+                const isRateLimit = error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED'));
+                const waitTime = isRateLimit ? attempt * 10000 : attempt * 2000; // 10s/20s/30s for 429, 2s/4s otherwise
                 console.log(`Retrying in ${waitTime / 1000} seconds...`);
                 await new Promise(r => setTimeout(r, waitTime));
                 continue;
@@ -1199,7 +1200,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             tempFiles.push(imagePath);
 
             if (i < allImagePrompts.length - 1) {
-                await new Promise(r => setTimeout(r, 1000));
+                await new Promise(r => setTimeout(r, 3000));
             }
         }
 
