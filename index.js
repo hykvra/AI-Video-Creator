@@ -541,12 +541,42 @@ async function generateImage(prompt, outputPath, retries = 5) {
                 continue;
             }
 
-            // Final fallback: placeholder image
-            console.log('Using placeholder image...');
-            await createPlaceholderImage(outputPath);
-            return outputPath;
+            // Final fallback: try Imagen 3, then placeholder
+            console.log('All Gemini Image attempts failed. Trying Imagen 3 fallback...');
+            try {
+                return await generateImageImagen3(prompt, outputPath);
+            } catch (imagenError) {
+                console.error('Imagen 3 fallback also failed:', imagenError.message);
+                console.log('Using placeholder image...');
+                await createPlaceholderImage(outputPath);
+                return outputPath;
+            }
         }
     }
+}
+
+/**
+ * Generate image using Imagen 3 (imagen-3.0-generate-002) as fallback
+ */
+async function generateImageImagen3(prompt, outputPath) {
+    console.log('Generating image with Imagen 3 (imagen-3.0-generate-002)...');
+    const response = await getGoogleAI().models.generateImages({
+        model: 'imagen-3.0-generate-002',
+        prompt: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: '9:16',
+        },
+    });
+
+    if (response.generatedImages && response.generatedImages[0] && response.generatedImages[0].image && response.generatedImages[0].image.imageBytes) {
+        const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, 'base64');
+        fs.writeFileSync(outputPath, buffer);
+        console.log(`✓ Imagen 3 image saved: ${outputPath}`);
+        return outputPath;
+    }
+
+    throw new Error('No image data in Imagen 3 response');
 }
 
 /**
