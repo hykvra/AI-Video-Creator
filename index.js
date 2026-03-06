@@ -38,6 +38,13 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Write GCP service account credentials from env variable (for Railway/cloud deployments)
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    const credsPath = '/tmp/gcp-credentials.json';
+    fs.writeFileSync(credsPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+}
+
 // Initialize Express app
 const app = express();
 app.use(express.json());
