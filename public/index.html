@@ -900,10 +900,12 @@
                         document.getElementById('reviewSection').style.display = 'block';
                         document.getElementById('btnText').textContent = 'Reviewing...';
                         document.getElementById('spinner').style.display = 'none';
-                        // Keep connection open? No need, backend returned, but SSE kept alive?
-                        // Actually backend stopped, but SSE connection is separate. 
-                        // The 'previewReady' was sent, then server function returned.
-                        // We can verify this.
+                    } else if (progress.step === 'thumbnailPreview') {
+                        // Swap spinner for actual generated image in the thumbnail card
+                        const imgContainer = document.getElementById(`thumbImg_${progress.index}`);
+                        if (imgContainer) {
+                            imgContainer.innerHTML = `<img src="${progress.url}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Thumbnail ${progress.index + 1}">`;
+                        }
                     }
                 };
 
@@ -950,20 +952,26 @@
                         onclick="selectThumbnail(${i})"
                         style="
                             cursor: pointer;
-                            padding: 10px 14px;
                             border-radius: 8px;
                             border: 2px solid ${i === 0 ? '#a855f7' : 'rgba(255,255,255,0.1)'};
                             background: ${i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)'};
                             font-size: 12px;
                             color: #e5e7eb;
                             flex: 1;
-                            min-width: 160px;
+                            min-width: 140px;
+                            max-width: 200px;
+                            overflow: hidden;
                             transition: border 0.2s, background 0.2s;
                         ">
-                        <div style="color: ${i === 0 ? '#c084fc' : '#9ca3af'}; font-weight: 600; margin-bottom: 4px;">
-                            ${i === 0 ? '✅' : '⬜'} Option ${i + 1}
+                        <div id="thumbImg_${i}" style="width: 100%; aspect-ratio: 9/16; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 22px;">
+                            ⏳
                         </div>
-                        <div>${prompt}</div>
+                        <div style="padding: 8px 10px;">
+                            <div style="color: ${i === 0 ? '#c084fc' : '#9ca3af'}; font-weight: 600; margin-bottom: 4px;" id="thumbLabel_${i}">
+                                ${i === 0 ? '✅' : '⬜'} Option ${i + 1}
+                            </div>
+                            <div style="font-size: 11px; color: #9ca3af;">${prompt}</div>
+                        </div>
                     </div>`).join('');
 
                 thumbnailSelectionHtml = `

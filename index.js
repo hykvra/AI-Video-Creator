@@ -1536,6 +1536,32 @@ app.post('/api/create-video', async (req, res) => {
                     subscribeImage
                 }
             });
+
+            // Generate thumbnail previews in the background so user can see them during review
+            if (youtubeMetadata && youtubeMetadata.thumbnail_prompts && youtubeMetadata.thumbnail_prompts.length > 0) {
+                (async () => {
+                    for (let i = 0; i < youtubeMetadata.thumbnail_prompts.length; i++) {
+                        const thumbPath = path.join(TEMP_DIR, `${sessionId}_preview_thumb_${i + 1}.png`);
+                        try {
+                            await generateImage(youtubeMetadata.thumbnail_prompts[i], thumbPath);
+                            const session = pendingSessions.get(sessionId);
+                            if (session) {
+                                if (!session.previewThumbnailPaths) session.previewThumbnailPaths = [];
+                                session.previewThumbnailPaths[i] = thumbPath;
+                            }
+                            sendProgress(sessionId, {
+                                step: 'thumbnailPreview',
+                                status: 'ready',
+                                index: i,
+                                url: `/api/preview-thumbnail/${sessionId}/${i}`
+                            });
+                        } catch (e) {
+                            console.error(`Preview thumbnail ${i + 1} failed:`, e.message);
+                        }
+                    }
+                })();
+            }
+
             return; // STOP HERE
         }
 
@@ -1742,6 +1768,22 @@ app.get('/api/thumbnail/:sessionId/:index', (req, res) => {
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Content-Disposition', `attachment; filename="thumbnail_${idx + 1}.png"`);
     fs.createReadStream(entry.thumbnailPaths[idx]).pipe(res);
+});
+
+/**
+ * Serve a preview thumbnail generated during script review
+ *
+ * @name GET /api/preview-thumbnail/:sessionId/:index
+ */
+app.get('/api/preview-thumbnail/:sessionId/:index', (req, res) => {
+    const session = pendingSessions.get(req.params.sessionId);
+    const idx = parseInt(req.params.index, 10);
+    const thumbPath = session && session.previewThumbnailPaths && session.previewThumbnailPaths[idx];
+    if (!thumbPath || !fs.existsSync(thumbPath)) {
+        return res.status(404).json({ error: 'Preview thumbnail not ready yet' });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    fs.createReadStream(thumbPath).pipe(res);
 });
 
 /**
