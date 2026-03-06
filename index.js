@@ -687,16 +687,17 @@ async function generateImage(prompt, outputPath, genre = 'informative', retries 
 
                 if (isRateLimit) {
                     geminiConsecutive429s++;
-                    // After 2 consecutive 429s on first attempt, trip the breaker for 3 minutes
                     if (geminiConsecutive429s >= 2) {
                         geminiRateLimitedUntil = Date.now() + 3 * 60 * 1000;
                         console.log(`Gemini circuit breaker tripped (${geminiConsecutive429s} consecutive 429s). Skipping Gemini for 3 minutes.`);
-                        break; // skip remaining retries, go straight to Imagen
                     }
+                    // On any 429, immediately fall back to Imagen — no point retrying an exhausted quota
+                    console.log('Gemini rate-limited. Falling back to Imagen immediately...');
+                    break;
                 }
 
                 if (attempt < retries) {
-                    const waitTime = isRateLimit ? attempt * 10000 : attempt * 2000;
+                    const waitTime = attempt * 2000;
                     console.log(`Retrying in ${waitTime / 1000} seconds...`);
                     await new Promise(r => setTimeout(r, waitTime));
                     continue;
