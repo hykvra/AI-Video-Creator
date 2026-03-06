@@ -633,11 +633,11 @@ function createPlaceholderImage(outputPath) {
  * );
  */
 const GENRE_IMAGE_PROMPT_PREFIX = {
-    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition. 9:16 vertical for mobile.`,
-    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor. 9:16 vertical for mobile.`,
-    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth. 9:16 vertical for mobile.`,
-    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing. 9:16 vertical for mobile.`,
-    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly. 9:16 vertical for mobile.`
+    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition.`,
+    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor.`,
+    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth.`,
+    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing.`,
+    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly.`
 };
 
 async function generateImage(prompt, outputPath, genre = 'informative', retries = 5) {
