@@ -7,3 +7,4 @@ temp
 .env
 docker-compose.yml
 .dockerignore
+ai-video-generator.json
