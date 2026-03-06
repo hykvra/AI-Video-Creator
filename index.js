@@ -40,9 +40,15 @@ const __dirname = path.dirname(__filename);
 
 // Write GCP service account credentials from env variable (for Railway/cloud deployments)
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    const credsPath = '/tmp/gcp-credentials.json';
-    fs.writeFileSync(credsPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+    const jsonStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim();
+    if (jsonStr.startsWith('{')) {
+        const credsPath = '/tmp/gcp-credentials.json';
+        fs.writeFileSync(credsPath, jsonStr);
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+        console.log('GCP credentials loaded from GOOGLE_APPLICATION_CREDENTIALS_JSON');
+    } else {
+        console.warn('GOOGLE_APPLICATION_CREDENTIALS_JSON is set but does not look like valid JSON — skipping. Paste the full service account JSON object.');
+    }
 }
 
 // Initialize Express app
