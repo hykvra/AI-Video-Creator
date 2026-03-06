@@ -110,6 +110,19 @@ const upload = multer({ storage: storageConfig });
 // Store active SSE connections
 const activeConnections = new Map();
 
+// In-memory registry of generated videos — ephemeral, cleared on page close or after TTL
+const videoRegistry = new Map(); // sessionId -> { videoPath, thumbnailPaths, timer }
+const VIDEO_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function cleanupSession(sessionId) {
+    const entry = videoRegistry.get(sessionId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    cleanupTempFiles([entry.videoPath, ...entry.thumbnailPaths]);
+    videoRegistry.delete(sessionId);
+    console.log(`[Cleanup] Session ${sessionId} removed`);
+}
+
 /**
  * Send progress update to SSE client via Server-Sent Events
  * 
@@ -1370,16 +1383,17 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             totalScenes: scenes.length
         });
 
-        const finalVideoPath = path.join(OUTPUT_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
+        const finalVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
         await concatenateClips(clipPaths, finalVideoPath);
 
-        const videoUrl = `/output/${path.basename(finalVideoPath)}`;
+        const videoUrl = `/api/video/${sessionId}`;
 
-        // Cleanup
+        // Cleanup intermediate temp files (audio, images, clips) — NOT the final video
         cleanupTempFiles(tempFiles);
 
         // Generate Thumbnails if metadata exists
         let thumbnailUrls = [];
+        let thumbnailPaths = [];
         if (youtubeMetadata && youtubeMetadata.thumbnail_prompts) {
             sendProgress(sessionId, {
                 step: 'image',
@@ -1390,12 +1404,16 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
             });
 
             console.log("Generating thumbnails for session:", sessionId);
-            const thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
+            thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId);
 
             for (let i = 0; i < thumbnailPaths.length; i++) {
-                thumbnailUrls.push(`/output/${path.basename(thumbnailPaths[i])}`);
+                thumbnailUrls.push(`/api/thumbnail/${sessionId}/${i}`);
             }
         }
+
+        // Register in ephemeral registry with auto-cleanup after TTL
+        const timer = setTimeout(() => cleanupSession(sessionId), VIDEO_TTL_MS);
+        videoRegistry.set(sessionId, { videoPath: finalVideoPath, thumbnailPaths, timer, videoTitle: sanitizedTitle });
 
         sendProgress(sessionId, {
             step: 'complete',
@@ -1577,7 +1595,7 @@ async function generateThumbnails(prompts, sessionId) {
     const paths = [];
     for (let i = 0; i < prompts.length; i++) {
         const prompt = prompts[i];
-        const path = `${OUTPUT_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
+        const path = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
             await generateImage(prompt, path);
@@ -1646,8 +1664,79 @@ app.post('/api/test-images', async (req, res) => {
 });
 
 /**
+ * Stream the generated video for a session (ephemeral — disappears on cleanup)
+ * Supports HTTP Range requests so the browser can seek in the video.
+ * Add ?download=1 to trigger a file download instead of inline playback.
+ *
+ * @name GET /api/video/:sessionId
+ */
+app.get('/api/video/:sessionId', (req, res) => {
+    const entry = videoRegistry.get(req.params.sessionId);
+    if (!entry || !fs.existsSync(entry.videoPath)) {
+        return res.status(404).json({ error: 'Video not found or has expired' });
+    }
+
+    const filePath = entry.videoPath;
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    const isDownload = req.query.download === '1';
+    const filename = `${entry.videoTitle || 'video'}.mp4`;
+    const disposition = isDownload ? `attachment; filename="${filename}"` : `inline; filename="${filename}"`;
+
+    if (range) {
+        const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(startStr, 10);
+        const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize,
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': disposition,
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+    } else {
+        res.writeHead(200, {
+            'Content-Length': fileSize,
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Content-Disposition': disposition,
+        });
+        fs.createReadStream(filePath).pipe(res);
+    }
+});
+
+/**
+ * Serve a thumbnail image for a session
+ *
+ * @name GET /api/thumbnail/:sessionId/:index
+ */
+app.get('/api/thumbnail/:sessionId/:index', (req, res) => {
+    const entry = videoRegistry.get(req.params.sessionId);
+    const idx = parseInt(req.params.index, 10);
+    if (!entry || !entry.thumbnailPaths[idx] || !fs.existsSync(entry.thumbnailPaths[idx])) {
+        return res.status(404).json({ error: 'Thumbnail not found or has expired' });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="thumbnail_${idx + 1}.png"`);
+    fs.createReadStream(entry.thumbnailPaths[idx]).pipe(res);
+});
+
+/**
+ * Clean up a session's video and thumbnails immediately (called on page close)
+ *
+ * @name DELETE /api/session/:sessionId
+ */
+app.delete('/api/session/:sessionId', (req, res) => {
+    cleanupSession(req.params.sessionId);
+    res.json({ success: true });
+});
+
+/**
  * Health check endpoint
- * 
+ *
  * Simple endpoint to verify the server is running and responding.
  */
 app.get('/api/health', (req, res) => {

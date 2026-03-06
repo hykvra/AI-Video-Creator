@@ -636,6 +636,13 @@
         let timerStartTime = null;
         let currentSessionId = null;
 
+        // Clean up the session's video from the server when the page is closed or refreshed
+        window.addEventListener('pagehide', () => {
+            if (currentSessionId) {
+                navigator.sendBeacon(`/api/session/${currentSessionId}`, '');
+            }
+        });
+
         const icons = {
             script: '📝', image: '🖼️', audio: '🎙️', clip: '🎬',
             scene_complete: '✅', assembly: '🔧', upload: '☁️', complete: '🎉', error: '❌',
@@ -989,11 +996,8 @@
             videoContainer.style.display = 'block';
             successVideo.src = videoUrl;
             document.getElementById('videoLink').href = videoUrl;
-            downloadLink.href = videoUrl;
-
-            // Extract filename for download attribute
-            const filename = videoUrl.split('/').pop();
-            downloadLink.setAttribute('download', filename);
+            downloadLink.href = videoUrl + '?download=1';
+            downloadLink.setAttribute('download', '');
 
             // Render YouTube Metadata in Success Box
             const yt = youtubeMetadata || {};
