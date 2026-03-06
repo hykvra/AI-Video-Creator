@@ -24,6 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
+import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
@@ -37,6 +38,109 @@ dotenv.config();
 // ES Module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Register bundled Noto fonts for thumbnail text overlay
+const FONTS_DIR = path.join(__dirname, 'assets', 'fonts');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansDevanagari-Bold.ttf'), 'NotoDevanagari');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansGujarati-Bold.ttf'), 'NotoGujarati');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSans-Bold.ttf'), 'NotoLatin');
+
+// Maps language name → registered canvas font family
+const THUMBNAIL_FONT = {
+    hindi:    'NotoDevanagari',
+    gujarati: 'NotoGujarati',
+    english:  'NotoLatin',
+};
+
+/**
+ * Strip any AI-generated text-rendering instructions from an image prompt.
+ * AI image models cannot reliably render Devanagari/Gujarati — we overlay
+ * the title programmatically instead.
+ */
+function cleanImagePrompt(prompt) {
+    return prompt
+        // Remove "with text/title/caption/overlay/label ..." clauses
+        .replace(/\bwith\s+(bold\s+|white\s+|large\s+)*(text|title|caption|overlay|heading|label|words?)\b[^,.;]*/gi, '')
+        .replace(/\b(overlay|overlaid|overlaying)\s+(with\s+)?(text|title|caption|words?)\b[^,.;]*/gi, '')
+        .replace(/\b(text|title|caption)\s+(overlay|overlaid)\b[^,.;]*/gi, '')
+        // Remove quoted strings (usually the literal text to render)
+        .replace(/["""][^"""]{1,120}["""]/g, '')
+        .replace(/[''][^'']{1,120}['']/g, '')
+        // Remove "saying ..." / "reading ..." constructs
+        .replace(/\b(saying|reading|displaying|showing|written)\s+["']?[^,.\n]{0,80}["']?/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+/**
+ * Composites the video title as properly-rendered text onto a thumbnail image.
+ * Uses @napi-rs/canvas with bundled Noto fonts so Devanagari/Gujarati script
+ * is rendered correctly instead of being garbled by the AI image model.
+ *
+ * @param {string} imagePath  - Path to the PNG thumbnail (modified in-place)
+ * @param {string} title      - Title text to overlay (any supported script)
+ * @param {string} language   - 'hindi' | 'gujarati' | 'english'
+ */
+async function addTitleOverlay(imagePath, title, language = 'hindi') {
+    const fontFamily = THUMBNAIL_FONT[language] || 'NotoDevanagari';
+
+    const img = await loadImage(imagePath);
+    const { width, height } = img;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Draw the base image
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const fontSize  = Math.round(width * 0.072);
+    const padding   = Math.round(width * 0.055);
+    const maxWidth  = width - padding * 2;
+    const lineHeight = fontSize * 1.35;
+
+    ctx.font = `bold ${fontSize}px "${fontFamily}"`;
+
+    // Word-wrap the title
+    const words = title.split(' ');
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const test = current ? `${current} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && current) {
+            lines.push(current);
+            current = word;
+        } else {
+            current = test;
+        }
+    }
+    if (current) lines.push(current);
+
+    const blockHeight = padding * 2 + lines.length * lineHeight;
+
+    // Dark gradient scrim at the top so text is always legible
+    const grad = ctx.createLinearGradient(0, 0, 0, blockHeight + fontSize);
+    grad.addColorStop(0,   'rgba(0,0,0,0.80)');
+    grad.addColorStop(0.7, 'rgba(0,0,0,0.55)');
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, blockHeight + fontSize);
+
+    // White text with dark shadow
+    ctx.font = `bold ${fontSize}px "${fontFamily}"`;
+    ctx.fillStyle  = '#FFFFFF';
+    ctx.shadowColor   = 'rgba(0,0,0,0.95)';
+    ctx.shadowBlur    = Math.round(fontSize * 0.25);
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+    ctx.textBaseline  = 'top';
+    ctx.textAlign     = 'left';
+
+    lines.forEach((line, i) => {
+        ctx.fillText(line, padding, padding + i * lineHeight);
+    });
+
+    fs.writeFileSync(imagePath, canvas.toBuffer('image/png'));
+}
 
 // Write GCP service account credentials from env variable (for Railway/cloud deployments)
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
@@ -1488,7 +1592,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
                 console.log(`Using pre-generated preview thumbnail: ${previewThumbnailPath}`);
             } else {
                 console.log("Generating thumbnails for session:", sessionId);
-                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId, genre);
+                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId, genre, youtubeMetadata.title || videoTitle, selectedLanguage);
             }
 
             for (let i = 0; i < thumbnailPaths.length; i++) {
@@ -1628,7 +1732,11 @@ app.post('/api/create-video', async (req, res) => {
                         if (ctrl.aborted) break;
                         const thumbPath = path.join(TEMP_DIR, `${sessionId}_preview_thumb_${i + 1}.png`);
                         try {
-                            await generateImage(youtubeMetadata.thumbnail_prompts[i], thumbPath, selectedGenre);
+                            const cleanedPrompt = cleanImagePrompt(youtubeMetadata.thumbnail_prompts[i]);
+                            await generateImage(cleanedPrompt, thumbPath, selectedGenre);
+                            if (youtubeMetadata.title) {
+                                await addTitleOverlay(thumbPath, youtubeMetadata.title, selectedLanguage);
+                            }
                             if (ctrl.aborted) break; // user confirmed while we were generating
                             const sess = pendingSessions.get(sessionId);
                             if (sess) {
@@ -1736,15 +1844,19 @@ app.post('/api/confirm-video', async (req, res) => {
  * @param {string} sessionId - Unique session ID
  * @returns {Promise<string[]>} Array of absolute paths to generated thumbnail images
  */
-async function generateThumbnails(prompts, sessionId, genre = 'informative') {
+async function generateThumbnails(prompts, sessionId, genre = 'informative', title = '', language = 'hindi') {
     const paths = [];
     for (let i = 0; i < prompts.length; i++) {
-        const prompt = prompts[i];
-        const path = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
+        const cleanedPrompt = cleanImagePrompt(prompts[i]);
+        const thumbPath = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
-            await generateImage(prompt, path, genre);
-            paths.push(path);
+            await generateImage(cleanedPrompt, thumbPath, genre);
+            if (title) {
+                await addTitleOverlay(thumbPath, title, language);
+                console.log(`✓ Title overlay added to thumbnail ${i + 1}`);
+            }
+            paths.push(thumbPath);
         } catch (e) {
             console.error(`Thumbnail ${i + 1} failed:`, e);
         }
