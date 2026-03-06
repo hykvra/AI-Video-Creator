@@ -1574,6 +1574,7 @@ app.post('/api/create-video', async (req, res) => {
                             sendProgress(sessionId, {
                                 step: 'thumbnailPreview',
                                 status: 'ready',
+                                message: `Thumbnail ${i + 1} preview ready`,
                                 index: i,
                                 url: `/api/preview-thumbnail/${sessionId}/${i}`
                             });

@@ -879,7 +879,7 @@
                 eventSource.onmessage = (event) => {
                     const progress = JSON.parse(event.data);
 
-                    addLogEntry(progress.step, progress.message);
+                    if (progress.message) addLogEntry(progress.step, progress.message);
 
                     if (progress.totalScenes) {
                         totalScenes = progress.totalScenes;
