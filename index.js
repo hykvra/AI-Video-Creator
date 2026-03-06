@@ -45,12 +45,23 @@ GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansDevanagari-Bold.ttf')
 GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansGujarati-Bold.ttf'), 'NotoGujarati');
 GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSans-Bold.ttf'), 'NotoLatin');
 
-// Maps language name → registered canvas font family
+// Maps language name → primary canvas font family (with fallbacks for mixed-script titles)
 const THUMBNAIL_FONT = {
-    hindi:    'NotoDevanagari',
-    gujarati: 'NotoGujarati',
-    english:  'NotoLatin',
+    hindi:    '"NotoDevanagari", "NotoGujarati", "NotoLatin"',
+    gujarati: '"NotoGujarati", "NotoDevanagari", "NotoLatin"',
+    english:  '"NotoLatin", "NotoDevanagari", "NotoGujarati"',
 };
+
+/**
+ * Remove characters that none of our bundled fonts can render (emoji, symbols,
+ * obscure Unicode blocks) so they never appear as tofu boxes on the thumbnail.
+ */
+function sanitizeTitleForCanvas(text) {
+    // Keep: Devanagari (U+0900–097F), Gujarati (U+0A80–0AFF),
+    //       Latin basic + extended (U+0000–024F), common punctuation &
+    //       general punctuation (U+2000–206F), ASCII printable range.
+    return text.replace(/[^\u0000-\u024F\u0900-\u097F\u0A80-\u0AFF\u2000-\u206F\u20B9|:,.!?()[\]{}\-–—_/\\@#%^&*+=<>~`'"' ]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 /**
  * Strip any AI-generated text-rendering instructions from an image prompt.
@@ -82,7 +93,8 @@ function cleanImagePrompt(prompt) {
  * @param {string} language   - 'hindi' | 'gujarati' | 'english'
  */
 async function addTitleOverlay(imagePath, title, language = 'hindi') {
-    const fontFamily = THUMBNAIL_FONT[language] || 'NotoDevanagari';
+    const fontStack = THUMBNAIL_FONT[language] || THUMBNAIL_FONT.hindi;
+    const cleanTitle = sanitizeTitleForCanvas(title);
 
     const img = await loadImage(imagePath);
     const { width, height } = img;
@@ -98,10 +110,10 @@ async function addTitleOverlay(imagePath, title, language = 'hindi') {
     const maxWidth  = width - padding * 2;
     const lineHeight = fontSize * 1.35;
 
-    ctx.font = `bold ${fontSize}px "${fontFamily}"`;
+    ctx.font = `bold ${fontSize}px ${fontStack}`;
 
-    // Word-wrap the title
-    const words = title.split(' ');
+    // Word-wrap the sanitised title
+    const words = cleanTitle.split(' ');
     const lines = [];
     let current = '';
     for (const word of words) {
@@ -126,7 +138,7 @@ async function addTitleOverlay(imagePath, title, language = 'hindi') {
     ctx.fillRect(0, 0, width, blockHeight + fontSize);
 
     // White text with dark shadow
-    ctx.font = `bold ${fontSize}px "${fontFamily}"`;
+    ctx.font = `bold ${fontSize}px ${fontStack}`;
     ctx.fillStyle  = '#FFFFFF';
     ctx.shadowColor   = 'rgba(0,0,0,0.95)';
     ctx.shadowBlur    = Math.round(fontSize * 0.25);
