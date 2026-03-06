@@ -1561,7 +1561,7 @@ app.post('/api/create-video', async (req, res) => {
  * @param {string} req.body.sessionId - The session ID to resume
  */
 app.post('/api/confirm-video', async (req, res) => {
-    const { sessionId } = req.body;
+    const { sessionId, selectedThumbnailIndex } = req.body;
 
     if (!sessionId || !pendingSessions.has(sessionId)) {
         return res.status(404).json({ success: false, error: 'Session not found or expired' });
@@ -1573,7 +1573,21 @@ app.post('/api/confirm-video', async (req, res) => {
     res.json({ success: true, message: 'Resuming video generation' });
 
     console.log(`Resuming session ${sessionId} after preview approval`);
-    console.log('DEBUG: sessionData stored metadata:', JSON.stringify(sessionData.youtubeMetadata, null, 2));
+
+    // Filter thumbnail prompts to only the user-selected one
+    const youtubeMetadata = { ...sessionData.youtubeMetadata };
+    if (
+        youtubeMetadata.thumbnail_prompts &&
+        youtubeMetadata.thumbnail_prompts.length > 0 &&
+        selectedThumbnailIndex !== undefined
+    ) {
+        const idx = parseInt(selectedThumbnailIndex, 10);
+        const chosen = youtubeMetadata.thumbnail_prompts[idx];
+        if (chosen) {
+            youtubeMetadata.thumbnail_prompts = [chosen];
+            console.log(`Thumbnail option ${idx + 1} selected: "${chosen}"`);
+        }
+    }
 
     // Resume processing
     await processScenes(
@@ -1581,7 +1595,7 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.scenes,
         sessionData.videoTitle,
         sessionData.selectedLanguage,
-        sessionData.youtubeMetadata,
+        youtubeMetadata,
         sessionData.subscribeImage
     );
 });

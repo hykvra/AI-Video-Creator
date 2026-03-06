@@ -635,6 +635,7 @@
         let timerInterval = null;
         let timerStartTime = null;
         let currentSessionId = null;
+        let selectedThumbnailIndex = 0; // which thumbnail prompt the user picked during review
 
         // Clean up the session's video from the server when the page is closed or refreshed
         window.addEventListener('pagehide', () => {
@@ -915,20 +916,73 @@
             }
         }
 
+        function selectThumbnail(index) {
+            // Deselect all cards then highlight the chosen one
+            document.querySelectorAll('[id^="thumbCard_"]').forEach((card, i) => {
+                const selected = i === index;
+                card.style.border = selected ? '2px solid #a855f7' : '2px solid rgba(255,255,255,0.1)';
+                card.style.background = selected ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)';
+                const label = card.querySelector('div');
+                if (label) {
+                    label.style.color = selected ? '#c084fc' : '#9ca3af';
+                    label.textContent = `${selected ? '✅' : '⬜'} Option ${i + 1}`;
+                }
+            });
+            selectedThumbnailIndex = index;
+        }
+
         function renderReviewContent(data) {
             const container = document.getElementById('reviewContent');
             const langKey = data.language === 'english' ? 'audio_script_english' :
                 data.language === 'hindi' ? 'audio_script_hindi' : 'audio_script_gujarati';
 
             const yt = data.youtubeMetadata || {};
+            const thumbnailPrompts = yt.thumbnail_prompts || [];
 
-            let html = `<div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            // Reset selection to first option
+            selectedThumbnailIndex = 0;
+
+            // Build thumbnail selection HTML if prompts exist
+            let thumbnailSelectionHtml = '';
+            if (thumbnailPrompts.length > 0) {
+                const cards = thumbnailPrompts.map((prompt, i) => `
+                    <div id="thumbCard_${i}"
+                        onclick="selectThumbnail(${i})"
+                        style="
+                            cursor: pointer;
+                            padding: 10px 14px;
+                            border-radius: 8px;
+                            border: 2px solid ${i === 0 ? '#a855f7' : 'rgba(255,255,255,0.1)'};
+                            background: ${i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)'};
+                            font-size: 12px;
+                            color: #e5e7eb;
+                            flex: 1;
+                            min-width: 160px;
+                            transition: border 0.2s, background 0.2s;
+                        ">
+                        <div style="color: ${i === 0 ? '#c084fc' : '#9ca3af'}; font-weight: 600; margin-bottom: 4px;">
+                            ${i === 0 ? '✅' : '⬜'} Option ${i + 1}
+                        </div>
+                        <div>${prompt}</div>
+                    </div>`).join('');
+
+                thumbnailSelectionHtml = `
+                <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <h4 style="color: #a855f7; margin-bottom: 10px;">🖼️ Select Thumbnail Style</h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                        ${cards}
+                    </div>
+                </div>`;
+            }
+
+            let html = thumbnailSelectionHtml + `
+            <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                 <h4 style="color: #ec4899; margin-bottom: 8px;">📺 YouTube Shorts Metadata</h4>
                 <div style="margin-bottom: 8px;"><strong>Title:</strong> ${yt.title || 'N/A'}</div>
                 <div style="margin-bottom: 8px; font-size: 13px;"><strong>Description:</strong><br>${yt.description || 'N/A'}</div>
                 <div style="font-size: 12px;"><strong>Tags:</strong> ${(yt.tags || []).join(', ')}</div>
             </div>
-            
+
             <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                 <strong>Script Title:</strong> ${data.videoTitle}<br>
                 <strong>Language:</strong> ${data.language}
@@ -964,7 +1018,7 @@
                 const response = await fetch('/api/confirm-video', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId: currentSessionId })
+                    body: JSON.stringify({ sessionId: currentSessionId, selectedThumbnailIndex })
                 });
 
                 const data = await response.json();
