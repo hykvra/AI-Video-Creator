@@ -71,7 +71,7 @@ function getGoogleAI() {
         _googleAI = new GoogleGenAI({
             vertexai: true,
             project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION || 'us-central1',
+            location: process.env.GCP_LOCATION || 'asia-south1',
         });
     }
     return _googleAI;
@@ -541,28 +541,34 @@ async function generateImage(prompt, outputPath, retries = 5) {
                 continue;
             }
 
-            // Final fallback: try Imagen 3, then placeholder
-            console.log('All Gemini Image attempts failed. Trying Imagen 3 fallback...');
-            try {
-                return await generateImageImagen3(prompt, outputPath);
-            } catch (imagenError) {
-                console.error('Imagen 3 fallback also failed:', imagenError.message);
-                console.log('Using placeholder image...');
-                await createPlaceholderImage(outputPath);
-                return outputPath;
+            // Fallback chain: Imagen 4 Fast → Imagen 4 → Imagen 3 Fast → placeholder
+            console.log('All Gemini Image attempts failed. Trying Imagen fallback chain...');
+            const imagenFallbacks = [
+                { model: 'imagen-4.0-fast-generate-preview-05-20', label: 'Imagen 4 Fast' },
+                { model: 'imagen-4.0-generate-preview-05-20',      label: 'Imagen 4' },
+                { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
+            ];
+            for (const fallback of imagenFallbacks) {
+                try {
+                    return await generateImageImagen(prompt, outputPath, fallback.model, fallback.label);
+                } catch (imagenError) {
+                    console.error(`${fallback.label} fallback failed:`, imagenError.message);
+                }
             }
+            console.log('All Imagen fallbacks failed. Using placeholder image...');
+            await createPlaceholderImage(outputPath);
+            return outputPath;
         }
     }
 }
 
 /**
- * Generate image using Imagen 3 Fast (imagen-3.0-fast-generate-001) as fallback
- * 20 RPM quota vs 1 RPM for imagen-3.0-generate-002
+ * Generate image using a specified Imagen model
  */
-async function generateImageImagen3(prompt, outputPath) {
-    console.log('Generating image with Imagen 3 Fast (imagen-3.0-fast-generate-001)...');
+async function generateImageImagen(prompt, outputPath, model, label) {
+    console.log(`Generating image with ${label} (${model})...`);
     const response = await getGoogleAI().models.generateImages({
-        model: 'imagen-3.0-fast-generate-001',
+        model,
         prompt: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
         config: {
             numberOfImages: 1,
@@ -573,11 +579,11 @@ async function generateImageImagen3(prompt, outputPath) {
     if (response.generatedImages && response.generatedImages[0] && response.generatedImages[0].image && response.generatedImages[0].image.imageBytes) {
         const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, 'base64');
         fs.writeFileSync(outputPath, buffer);
-        console.log(`✓ Imagen 3 image saved: ${outputPath}`);
+        console.log(`✓ ${label} image saved: ${outputPath}`);
         return outputPath;
     }
 
-    throw new Error('No image data in Imagen 3 response');
+    throw new Error(`No image data in ${label} response`);
 }
 
 /**
