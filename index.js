@@ -556,12 +556,13 @@ async function generateImage(prompt, outputPath, retries = 5) {
 }
 
 /**
- * Generate image using Imagen 3 (imagen-3.0-generate-002) as fallback
+ * Generate image using Imagen 3 Fast (imagen-3.0-fast-generate-001) as fallback
+ * 20 RPM quota vs 1 RPM for imagen-3.0-generate-002
  */
 async function generateImageImagen3(prompt, outputPath) {
-    console.log('Generating image with Imagen 3 (imagen-3.0-generate-002)...');
+    console.log('Generating image with Imagen 3 Fast (imagen-3.0-fast-generate-001)...');
     const response = await getGoogleAI().models.generateImages({
-        model: 'imagen-3.0-generate-002',
+        model: 'imagen-3.0-fast-generate-001',
         prompt: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
         config: {
             numberOfImages: 1,
