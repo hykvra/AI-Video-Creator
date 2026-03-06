@@ -51,8 +51,12 @@ app.use('/assest', express.static(path.join(__dirname, 'assest')));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Google Generative AI (Gemini API)
-const googleAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialize Google GenAI via Vertex AI
+const googleAI = new GoogleGenAI({
+    vertexai: true,
+    project: process.env.GCP_PROJECT_ID,
+    location: process.env.GCP_LOCATION || 'us-central1',
+});
 
 // Initialize Cartesia client (optional - won't crash if API key missing)
 let cartesia = null;
