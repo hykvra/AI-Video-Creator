@@ -4,619 +4,882 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Video Generator</title>
+    <title>AI Video Creator</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* === AURORA BACKGROUND === */
         body {
             font-family: 'Inter', -apple-system, sans-serif;
-            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
             min-height: 100vh;
             color: #fff;
+            background: #07071a;
+            overflow-x: hidden;
         }
 
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 40px 20px;
+        .aurora {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
         }
 
-        .header {
+        .aurora-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.3;
+            animation: drift 20s ease-in-out infinite alternate;
+        }
+
+        .aurora-blob:nth-child(1) {
+            width: 700px; height: 700px;
+            background: radial-gradient(circle, #6366f1, transparent 70%);
+            top: -250px; left: -150px;
+            animation-delay: 0s;
+        }
+
+        .aurora-blob:nth-child(2) {
+            width: 550px; height: 550px;
+            background: radial-gradient(circle, #a855f7, transparent 70%);
+            top: 25%; right: -180px;
+            animation-delay: -7s;
+        }
+
+        .aurora-blob:nth-child(3) {
+            width: 450px; height: 450px;
+            background: radial-gradient(circle, #ec4899, transparent 70%);
+            bottom: -80px; left: 25%;
+            animation-delay: -14s;
+        }
+
+        @keyframes drift {
+            0%   { transform: translate(0, 0) scale(1); }
+            33%  { transform: translate(50px, -70px) scale(1.06); }
+            66%  { transform: translate(-35px, 45px) scale(0.94); }
+            100% { transform: translate(25px, -25px) scale(1.03); }
+        }
+
+        /* === LAYOUT === */
+        .app-wrapper {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            padding: 36px 24px 56px;
+        }
+
+        .app-header {
             text-align: center;
             margin-bottom: 40px;
         }
 
-        .logo {
-            font-size: 48px;
-            margin-bottom: 16px;
+        .logo-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 10px;
+        }
+
+        .logo-icon {
+            width: 54px; height: 54px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 8px 28px rgba(99,102,241,0.45);
         }
 
         h1 {
-            font-size: 32px;
+            font-size: 38px;
             font-weight: 700;
-            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
+            line-height: 1.1;
         }
 
-        .subtitle {
-            color: #9ca3af;
-            font-size: 16px;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 32px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-
-        .form-group {
-            margin-bottom: 24px;
-        }
-
-        label {
-            display: block;
-            font-size: 14px;
-            font-weight: 600;
-            color: #e5e7eb;
-            margin-bottom: 8px;
-        }
-
-        textarea {
-            width: 100%;
-            padding: 16px;
-            font-size: 16px;
-            font-family: inherit;
-            background: rgba(0, 0, 0, 0.3);
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            color: #fff;
-            resize: vertical;
-            min-height: 100px;
-            transition: all 0.3s ease;
-        }
-
-        textarea:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
-        }
-
-        textarea::placeholder {
+        .app-subtitle {
             color: #6b7280;
+            font-size: 15px;
+            margin-top: 6px;
         }
 
-        .btn {
-            width: 100%;
-            padding: 16px 32px;
-            font-size: 16px;
-            font-weight: 600;
-            font-family: inherit;
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            color: #fff;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top-color: #fff;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* Progress Section */
-        .progress-section {
-            margin-top: 24px;
-            display: none;
-        }
-
-        .progress-section.visible {
-            display: block;
-        }
-
-        .progress-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }
-
-        .progress-title {
-            font-weight: 600;
-            color: #e5e7eb;
-        }
-
-        .progress-percent {
-            color: #a855f7;
-            font-weight: 600;
-        }
-
-        .progress-bar-container {
-            height: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #6366f1, #a855f7);
-            border-radius: 4px;
-            width: 0%;
-            transition: width 0.5s ease;
-        }
-
-        /* Timer Display */
-        .timer-display {
-            text-align: center;
-            margin-bottom: 16px;
-            padding: 12px 20px;
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
-            border-radius: 12px;
-            border: 1px solid rgba(99, 102, 241, 0.3);
-        }
-
-        .timer-label {
-            font-size: 12px;
-            color: #9ca3af;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 4px;
-        }
-
-        .timer-value {
-            font-size: 32px;
-            font-weight: 700;
-            font-family: 'Monaco', 'Consolas', monospace;
-            background: linear-gradient(135deg, #6366f1, #a855f7);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Live Log */
-        .live-log {
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 12px;
-            padding: 16px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 13px;
-        }
-
-        .log-entry {
-            padding: 8px 12px;
-            margin-bottom: 6px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateX(-10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        .log-entry.script {
-            background: rgba(99, 102, 241, 0.2);
-            border-left: 3px solid #6366f1;
-        }
-
-        .log-entry.image {
-            background: rgba(168, 85, 247, 0.2);
-            border-left: 3px solid #a855f7;
-        }
-
-        .log-entry.audio {
-            background: rgba(236, 72, 153, 0.2);
-            border-left: 3px solid #ec4899;
-        }
-
-        .log-entry.clip {
-            background: rgba(34, 211, 238, 0.2);
-            border-left: 3px solid #22d3ee;
-        }
-
-        .log-entry.scene_complete {
-            background: rgba(34, 197, 94, 0.2);
-            border-left: 3px solid #22c55e;
-        }
-
-        .log-entry.assembly {
-            background: rgba(251, 191, 36, 0.2);
-            border-left: 3px solid #fbbf24;
-        }
-
-        .log-entry.complete {
-            background: rgba(34, 197, 94, 0.3);
-            border-left: 3px solid #22c55e;
-        }
-
-        .log-entry.error {
-            background: rgba(239, 68, 68, 0.2);
-            border-left: 3px solid #ef4444;
-        }
-
-        .log-icon {
-            font-size: 16px;
-        }
-
-        .log-text {
-            flex: 1;
-            color: #e5e7eb;
-        }
-
-        .log-time {
-            color: #6b7280;
-            font-size: 11px;
-        }
-
-        /* Success Section */
-        .success-section {
-            display: none;
-            margin-top: 24px;
-            text-align: center;
-        }
-
-        .success-section.visible {
-            display: block;
-        }
-
-        .success-box {
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            border-radius: 12px;
-            padding: 24px;
-        }
-
-        .success-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-
-        .success-title {
-            font-size: 20px;
-            font-weight: 600;
-            color: #22c55e;
-            margin-bottom: 8px;
-        }
-
-        .video-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 16px;
-            padding: 14px 28px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            color: #fff;
-            text-decoration: none;
-            border-radius: 10px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-
-        .video-link:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(34, 197, 94, 0.4);
-        }
-
-        .reset-btn {
-            margin-top: 12px;
-            padding: 10px 20px;
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #9ca3af;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s ease;
-        }
-
-        .reset-btn:hover {
-            border-color: rgba(255, 255, 255, 0.4);
-            color: #fff;
-        }
-
-        /* Duration Selector */
-        .duration-selector {
+        .dashboard {
+            max-width: 1120px;
+            margin: 0 auto;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            grid-template-columns: 420px 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 820px) {
+            .dashboard { grid-template-columns: 1fr; }
+            h1 { font-size: 28px; }
+        }
+
+        /* === GLASS CARD === */
+        .glass {
+            background: rgba(255,255,255,0.04);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 22px;
+            padding: 28px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+
+        /* === SECTION LABEL === */
+        .section-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #6b7280;
+            margin-bottom: 12px;
+        }
+
+        .form-section {
+            margin-bottom: 26px;
+        }
+
+        /* === GENRE GRID === */
+        .genre-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
             gap: 10px;
         }
 
-        .duration-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            padding: 12px 8px;
-            font-size: 13px;
-            font-weight: 600;
-            font-family: inherit;
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            color: #9ca3af;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .duration-btn:hover {
-            border-color: rgba(99, 102, 241, 0.5);
-            color: #e5e7eb;
-        }
-
-        .duration-btn.active {
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3));
-            border-color: #6366f1;
-            color: #fff;
-        }
-
-        /* Image Selection Section */
-        .image-selection {
+        .genre-card {
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 12px;
-            padding: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 24px;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 15px 8px;
+            background: rgba(255,255,255,0.03);
+            border: 1.5px solid rgba(255,255,255,0.07);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-family: inherit;
+            color: #9ca3af;
+            font-size: 12px;
+            font-weight: 600;
         }
 
-        .image-preview-container {
+        .genre-card:hover {
+            background: rgba(99,102,241,0.1);
+            border-color: rgba(99,102,241,0.4);
+            color: #e5e7eb;
+            transform: translateY(-2px);
+        }
+
+        .genre-card.active {
+            background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(168,85,247,0.22));
+            border-color: #818cf8;
+            color: #fff;
+            box-shadow: 0 0 22px rgba(99,102,241,0.22), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        .genre-emoji { font-size: 22px; }
+
+        /* === PILL BUTTONS === */
+        .pill-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pill {
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            background: rgba(255,255,255,0.04);
+            border: 1.5px solid rgba(255,255,255,0.08);
+            border-radius: 50px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pill:hover {
+            border-color: rgba(99,102,241,0.5);
+            color: #e5e7eb;
+        }
+
+        .pill.active {
+            background: linear-gradient(135deg, rgba(99,102,241,0.28), rgba(168,85,247,0.28));
+            border-color: #818cf8;
+            color: #fff;
+        }
+
+        /* === TEXTAREA === */
+        .topic-textarea {
             width: 100%;
-            height: 180px;
-            border-radius: 8px;
-            background: #000;
+            padding: 16px;
+            font-size: 15px;
+            font-family: inherit;
+            background: rgba(0,0,0,0.28);
+            border: 1.5px solid rgba(255,255,255,0.07);
+            border-radius: 14px;
+            color: #fff;
+            resize: vertical;
+            min-height: 110px;
+            transition: all 0.3s ease;
+            line-height: 1.5;
+        }
+
+        .topic-textarea:focus {
+            outline: none;
+            border-color: #818cf8;
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.14);
+            background: rgba(0,0,0,0.38);
+        }
+
+        .topic-textarea::placeholder { color: #374151; }
+
+        /* === TOGGLE === */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 44px; height: 24px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+        .toggle-track {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50px;
+            transition: background 0.3s;
+        }
+
+        .toggle-track::after {
+            content: '';
+            position: absolute;
+            left: 3px; top: 3px;
+            width: 18px; height: 18px;
+            background: #fff;
+            border-radius: 50%;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        input:checked + .toggle-track { background: linear-gradient(135deg, #6366f1, #a855f7); }
+        input:checked + .toggle-track::after { transform: translateX(20px); }
+        .toggle-label { font-size: 14px; color: #d1d5db; }
+
+        /* === IMAGE UPLOAD === */
+        .image-upload-box {
+            border: 1.5px dashed rgba(255,255,255,0.1);
+            border-radius: 14px;
             overflow: hidden;
+            background: rgba(0,0,0,0.2);
+            position: relative;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .image-upload-box:hover { border-color: rgba(99,102,241,0.5); }
+
+        .image-preview {
+            width: 100%;
+            height: 140px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            position: relative;
+            overflow: hidden;
         }
 
-        .image-preview-container img {
+        .image-preview img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
         }
 
-        .upload-overlay {
+        .upload-hover {
             position: absolute;
             inset: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0,0,0,0.55);
             display: flex;
             align-items: center;
             justify-content: center;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.3s;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .image-upload-box:hover .upload-hover { opacity: 1; }
+
+        .upload-caption {
+            text-align: center;
+            padding: 8px;
+            font-size: 11px;
+            color: #4b5563;
+        }
+
+        /* === GENERATE BUTTON === */
+        .generate-btn {
+            width: 100%;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: inherit;
+            border: none;
+            border-radius: 14px;
             cursor: pointer;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            background-size: 200% 200%;
+            animation: gradientShift 4s ease infinite;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 32px rgba(99,102,241,0.35);
+            letter-spacing: 0.3px;
         }
 
-        .image-preview-container:hover .upload-overlay {
-            opacity: 1;
+        @keyframes gradientShift {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
-        .hidden-input {
-            display: none;
+        .generate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 42px rgba(99,102,241,0.5);
         }
+
+        .generate-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* === SPINNER === */
+        .spinner {
+            width: 18px; height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* === RIGHT PANEL === */
+        .right-panel { display: flex; flex-direction: column; gap: 20px; }
+
+        /* === IDLE STATE === */
+        .idle-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 64px 20px;
+            text-align: center;
+        }
+
+        .idle-icon { font-size: 56px; margin-bottom: 18px; opacity: 0.35; }
+        .idle-title { font-size: 18px; font-weight: 600; color: #4b5563; margin-bottom: 6px; }
+        .idle-sub { font-size: 14px; color: #374151; }
+
+        /* === STATS ROW === */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .stat-card {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: 'Monaco', 'Consolas', monospace;
+            background: linear-gradient(135deg, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 3px;
+        }
+
+        /* === PROGRESS BAR === */
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .progress-title { font-size: 13px; font-weight: 600; color: #9ca3af; }
+
+        .progress-track {
+            height: 6px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 99px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+            border-radius: 99px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        /* === LIVE LOG === */
+        .log-panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #6b7280;
+            margin-bottom: 10px;
+        }
+
+        .live-log {
+            background: rgba(0,0,0,0.32);
+            border-radius: 12px;
+            padding: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .live-log::-webkit-scrollbar { width: 4px; }
+        .live-log::-webkit-scrollbar-track { background: transparent; }
+        .live-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+        .log-entry {
+            padding: 7px 10px;
+            margin-bottom: 5px;
+            border-radius: 7px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            animation: slideIn 0.25s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-8px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-entry.script       { background: rgba(99,102,241,0.14);  border-left: 2px solid #6366f1; }
+        .log-entry.image        { background: rgba(168,85,247,0.14);  border-left: 2px solid #a855f7; }
+        .log-entry.audio        { background: rgba(236,72,153,0.14);  border-left: 2px solid #ec4899; }
+        .log-entry.clip         { background: rgba(34,211,238,0.14);  border-left: 2px solid #22d3ee; }
+        .log-entry.scene_complete { background: rgba(34,197,94,0.14); border-left: 2px solid #22c55e; }
+        .log-entry.assembly     { background: rgba(251,191,36,0.14);  border-left: 2px solid #fbbf24; }
+        .log-entry.complete     { background: rgba(34,197,94,0.2);    border-left: 2px solid #22c55e; }
+        .log-entry.error        { background: rgba(239,68,68,0.14);   border-left: 2px solid #ef4444; }
+
+        .log-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+        .log-text { flex: 1; color: #d1d5db; line-height: 1.4; }
+        .log-time { color: #4b5563; font-size: 10px; flex-shrink: 0; margin-top: 2px; }
+
+        /* === REVIEW SECTION === */
+        .review-panel {
+            background: rgba(99,102,241,0.05);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(99,102,241,0.28);
+            border-radius: 22px;
+            padding: 26px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.45);
+        }
+
+        .review-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #818cf8;
+            margin-bottom: 16px;
+        }
+
+        .review-content {
+            max-height: 380px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .review-actions { display: flex; gap: 10px; }
+
+        .btn-approve {
+            flex: 1;
+            padding: 13px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: inherit;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        .btn-approve:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(99,102,241,0.4); }
+
+        .btn-cancel {
+            flex: 1;
+            padding: 13px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: inherit;
+            border: 1.5px solid rgba(239,68,68,0.4);
+            border-radius: 12px;
+            cursor: pointer;
+            background: rgba(239,68,68,0.08);
+            color: #fca5a5;
+            transition: all 0.2s;
+        }
+
+        .btn-cancel:hover { background: rgba(239,68,68,0.18); }
+
+        /* === SUCCESS SECTION === */
+        .success-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(16,163,74,0.18));
+            border: 1px solid rgba(34,197,94,0.3);
+            border-radius: 50px;
+            padding: 8px 22px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #4ade80;
+            margin-bottom: 20px;
+        }
+
+        .success-video {
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.07);
+            background: #000;
+            height: 380px;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .success-actions { display: flex; gap: 10px; margin-bottom: 16px; }
+
+        .btn-watch {
+            flex: 1;
+            padding: 13px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: inherit;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: #fff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-watch:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(34,197,94,0.38); }
+
+        .btn-download {
+            flex: 1;
+            padding: 13px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: inherit;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: #fff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-download:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(59,130,246,0.38); }
+
+        .btn-reset {
+            padding: 10px 26px;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.12);
+            color: #6b7280;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .btn-reset:hover { border-color: rgba(255,255,255,0.3); color: #d1d5db; }
+
+        /* === METADATA BOX === */
+        .meta-box {
+            background: rgba(0,0,0,0.28);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: left;
+            margin-bottom: 16px;
+        }
+
+        .meta-box-title {
+            text-align: center;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #f472b6;
+            margin-bottom: 14px;
+        }
+
+        .meta-field { margin-bottom: 10px; }
+        .meta-key { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .meta-value {
+            background: rgba(255,255,255,0.05);
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #e5e7eb;
+            line-height: 1.5;
+        }
+        .meta-value.scrollable { max-height: 80px; overflow-y: auto; }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">🎬</div>
-            <h1>AI Video Generator</h1>
-            <p class="subtitle">Create stunning videos from any topic with AI</p>
+    <!-- Animated aurora blobs -->
+    <div class="aurora">
+        <div class="aurora-blob"></div>
+        <div class="aurora-blob"></div>
+        <div class="aurora-blob"></div>
+    </div>
+
+    <div class="app-wrapper">
+        <!-- Header -->
+        <div class="app-header">
+            <div class="logo-row">
+                <div class="logo-icon">🎬</div>
+            </div>
+            <h1>AI Video Creator</h1>
+            <p class="app-subtitle">Generate stunning short-form videos with AI</p>
         </div>
 
-        <div class="card">
-            <!-- Language Selector -->
-            <div class="form-group">
-                <label for="language">Language</label>
-                <div class="duration-selector">
-                    <button type="button" class="duration-btn active" data-language="gujarati"
-                        onclick="selectLanguage('gujarati')">🇮🇳 Gujarati</button>
-                    <button type="button" class="duration-btn" data-language="hindi"
-                        onclick="selectLanguage('hindi')">🇮🇳 Hindi</button>
-                    <button type="button" class="duration-btn" data-language="english"
-                        onclick="selectLanguage('english')">🇬🇧 English</button>
-                </div>
-                <input type="hidden" id="language" value="gujarati">
-            </div>
+        <div class="dashboard">
+            <!-- LEFT: Input Panel -->
+            <div class="glass">
 
-            <!-- Duration hidden for Did You Know - auto calculated from content -->
-            <div class="form-group" style="display: none;">
-                <label for="duration">Video Duration</label>
-                <div class="duration-selector">
-                    <button type="button" class="duration-btn" data-duration="30"
-                        onclick="selectDuration(30)">30s</button>
-                    <button type="button" class="duration-btn active" data-duration="60"
-                        onclick="selectDuration(60)">60s</button>
-                    <button type="button" class="duration-btn" data-duration="90"
-                        onclick="selectDuration(90)">90s</button>
-                    <button type="button" class="duration-btn" data-duration="120" onclick="selectDuration(120)">2
-                        min</button>
-                    <button type="button" class="duration-btn" data-duration="180" onclick="selectDuration(180)">3
-                        min</button>
-                </div>
-                <input type="hidden" id="duration" value="60">
-            </div>
-
-            <div class="form-group">
-                <label for="genre">Video Style</label>
-                <div class="duration-selector">
-                    <button type="button" class="duration-btn active" data-genre="informative"
-                        onclick="selectGenre('informative')">📚 Informative</button>
-                    <button type="button" class="duration-btn" data-genre="comedy" onclick="selectGenre('comedy')">😂
-                        Comedy</button>
-                    <button type="button" class="duration-btn" data-genre="storytelling"
-                        onclick="selectGenre('storytelling')">📖 Story</button>
-                    <button type="button" class="duration-btn" data-genre="motivational"
-                        onclick="selectGenre('motivational')">💪 Motivational</button>
-                    <button type="button" class="duration-btn" data-genre="didyouknow"
-                        onclick="selectGenre('didyouknow')">🤔 Did You Know</button>
-                </div>
-                <input type="hidden" id="genre" value="informative">
-            </div>
-
-            <!-- Topic field (Default) -->
-            <div class="form-group" id="topicSection">
-                <label for="topic">Enter Your Topic</label>
-                <textarea id="topic"
-                    placeholder="e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration..."></textarea>
-            </div>
-
-
-            <!-- Comedy Level Selector (appears when Comedy is selected) -->
-            <div class="form-group" id="comedyLevelSection" style="display: none;">
-                <label for="comedyLevel">Comedy Intensity</label>
-                <div class="duration-selector">
-                    <button type="button" class="duration-btn active" data-comedy-level="mild"
-                        onclick="selectComedyLevel('mild')">😊 Mild</button>
-                    <button type="button" class="duration-btn" data-comedy-level="medium"
-                        onclick="selectComedyLevel('medium')">😄 Medium</button>
-                    <button type="button" class="duration-btn" data-comedy-level="spicy"
-                        onclick="selectComedyLevel('spicy')">🔥 Spicy</button>
-                </div>
-                <input type="hidden" id="comedyLevel" value="mild">
-            </div>
-
-            <!-- Preview Toggle -->
-            <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                <input type="checkbox" id="previewMode" style="width: 20px; height: 20px;" checked>
-                <label for="previewMode" style="margin: 0; font-size: 15px; cursor: pointer;">Review Script & Prompts
-                    before generating</label>
-            </div>
-
-            <!-- End Screen Image Selection -->
-            <div class="form-group">
-                <label>End Screen Image (Subscribe Channel)</label>
-                <div class="image-selection">
-                    <div class="image-preview-container"
-                        onclick="document.getElementById('subscribeImageInput').click()">
-                        <img id="subscribePreview" src="/assest/Subscribe_Image.png" alt="Subscribe Image">
-                        <div class="upload-overlay">
-                            <span>Change Image</span>
-                        </div>
-                        <div id="uploadSpinner" class="spinner" style="display: none; position: absolute;"></div>
+                <!-- Language -->
+                <div class="form-section">
+                    <div class="section-label">Language</div>
+                    <div class="pill-group">
+                        <button type="button" class="pill active" data-language="gujarati"
+                            onclick="selectLanguage('gujarati')">🇮🇳 Gujarati</button>
+                        <button type="button" class="pill" data-language="hindi"
+                            onclick="selectLanguage('hindi')">🇮🇳 Hindi</button>
+                        <button type="button" class="pill" data-language="english"
+                            onclick="selectLanguage('english')">🇬🇧 English</button>
                     </div>
-                    <p style="font-size: 12px; color: #9ca3af; text-align: center;">Default: Subscribe_Image.png</p>
-                    <input type="file" id="subscribeImageInput" class="hidden-input" accept="image/*"
+                    <input type="hidden" id="language" value="gujarati">
+                </div>
+
+                <!-- Genre -->
+                <div class="form-section">
+                    <div class="section-label">Video Style</div>
+                    <div class="genre-grid">
+                        <button type="button" class="genre-card active" data-genre="informative"
+                            onclick="selectGenre('informative')">
+                            <span class="genre-emoji">📚</span>Informative
+                        </button>
+                        <button type="button" class="genre-card" data-genre="comedy"
+                            onclick="selectGenre('comedy')">
+                            <span class="genre-emoji">😂</span>Comedy
+                        </button>
+                        <button type="button" class="genre-card" data-genre="storytelling"
+                            onclick="selectGenre('storytelling')">
+                            <span class="genre-emoji">📖</span>Story
+                        </button>
+                        <button type="button" class="genre-card" data-genre="motivational"
+                            onclick="selectGenre('motivational')">
+                            <span class="genre-emoji">💪</span>Motivational
+                        </button>
+                        <button type="button" class="genre-card" data-genre="didyouknow"
+                            onclick="selectGenre('didyouknow')">
+                            <span class="genre-emoji">🤔</span>Did You Know
+                        </button>
+                    </div>
+                    <input type="hidden" id="genre" value="informative">
+                </div>
+
+                <!-- Comedy Level -->
+                <div class="form-section" id="comedyLevelSection" style="display: none;">
+                    <div class="section-label">Comedy Intensity</div>
+                    <div class="pill-group">
+                        <button type="button" class="pill active" data-comedy-level="mild"
+                            onclick="selectComedyLevel('mild')">😊 Mild</button>
+                        <button type="button" class="pill" data-comedy-level="medium"
+                            onclick="selectComedyLevel('medium')">😄 Medium</button>
+                        <button type="button" class="pill" data-comedy-level="spicy"
+                            onclick="selectComedyLevel('spicy')">🔥 Spicy</button>
+                    </div>
+                    <input type="hidden" id="comedyLevel" value="mild">
+                </div>
+
+                <!-- Duration (hidden, auto-managed) -->
+                <div style="display: none;">
+                    <input type="hidden" id="duration" value="60">
+                </div>
+
+                <!-- Topic -->
+                <div class="form-section" id="topicSection">
+                    <div class="section-label">Your Topic</div>
+                    <textarea id="topic" class="topic-textarea"
+                        placeholder="e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration..."></textarea>
+                </div>
+
+                <!-- Preview Toggle -->
+                <div class="form-section">
+                    <label class="toggle-row" for="previewMode">
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="previewMode" checked>
+                            <div class="toggle-track"></div>
+                        </div>
+                        <span class="toggle-label">Review script before generating</span>
+                    </label>
+                </div>
+
+                <!-- End Screen Image -->
+                <div class="form-section">
+                    <div class="section-label">End Screen Image</div>
+                    <div class="image-upload-box"
+                        onclick="document.getElementById('subscribeImageInput').click()">
+                        <div class="image-preview">
+                            <img id="subscribePreview" src="/assest/Subscribe_Image.png" alt="Subscribe Image">
+                            <div id="uploadSpinner" class="spinner" style="display: none; position: absolute;"></div>
+                        </div>
+                        <div class="upload-hover">Change Image</div>
+                        <div class="upload-caption">Default: Subscribe_Image.png</div>
+                    </div>
+                    <input type="file" id="subscribeImageInput" style="display: none;" accept="image/*"
                         onchange="uploadSubscribeImage(this)">
                     <input type="hidden" id="selectedSubscribeImage" value="assest/Subscribe_Image.png">
                 </div>
+
+                <!-- Generate Button -->
+                <button class="generate-btn" id="generateBtn" onclick="generateVideo()">
+                    <span id="btnText">✨ Generate Video</span>
+                    <div class="spinner" id="spinner" style="display: none;"></div>
+                </button>
+
             </div>
 
-            <button class="btn btn-primary" id="generateBtn" onclick="generateVideo()">
-                <span id="btnText">Generate Video</span>
-                <div class="spinner" id="spinner" style="display: none;"></div>
-            </button>
+            <!-- RIGHT: Status Panel -->
+            <div class="right-panel">
 
-            <!-- Review Section (Hidden by default) -->
-            <div id="reviewSection"
-                style="display: none; margin-top: 24px; background: rgba(0,0,0,0.4); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                <h3 style="color: #6366f1; margin-bottom: 16px;">🎬 Script Review</h3>
-                <div id="reviewContent" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
-                    <!-- Content injected here -->
+                <!-- Idle State -->
+                <div class="glass" id="idleState">
+                    <div class="idle-state">
+                        <div class="idle-icon">🎬</div>
+                        <div class="idle-title">Ready to create</div>
+                        <div class="idle-sub">Fill in the form and hit Generate</div>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <button class="btn btn-primary" onclick="confirmGeneration()" style="flex: 1;">✅ Approve &
-                        Generate</button>
-                    <button class="btn" onclick="cancelGeneration()"
-                        style="flex: 1; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5);">❌
-                        Cancel</button>
-                </div>
-            </div>
 
-            <!-- Progress Section -->
-            <div class="progress-section" id="progressSection">
-                <!-- Timer Display -->
-                <div class="timer-display">
-                    <div class="timer-label">Elapsed Time</div>
-                    <div class="timer-value" id="timerValue">00:00</div>
-                </div>
-                <div class="progress-header">
-                    <span class="progress-title">Creating Your Video</span>
-                    <span class="progress-percent" id="progressPercent">0%</span>
-                </div>
-                <div class="progress-bar-container">
-                    <div class="progress-bar-fill" id="progressBar"></div>
-                </div>
-                <div class="live-log" id="liveLog"></div>
-            </div>
-
-            <!-- Success Section -->
-            <div class="success-section" id="successSection">
-                <div class="success-box">
-                    <div class="success-icon">🎉</div>
-                    <div class="success-title">Video Ready!</div>
-                    <div id="videoContainer" style="margin-top: 20px; display: none;">
-                        <video id="successVideo" controls
-                            style="width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; height: 400px; background: #000;"></video>
-                        <div style="display: flex; gap: 10px; justify-content: center;">
-                            <a class="video-link" id="videoLink" target="_blank" style="flex: 1;">▶️ Watch
-                                Fullscreen</a>
-                            <a class="video-link" id="downloadLink" download
-                                style="flex: 1; background: linear-gradient(135deg, #3b82f6, #2563eb);">📥 Download
-                                Video</a>
+                <!-- Progress Card (hidden initially) -->
+                <div class="glass" id="progressCard" style="display: none;">
+                    <div class="stats-row">
+                        <div class="stat-card">
+                            <div class="stat-value" id="timerValue">00:00</div>
+                            <div class="stat-label">Elapsed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="progressPercent">0%</div>
+                            <div class="stat-label">Progress</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="sceneCountDisplay">—</div>
+                            <div class="stat-label">Scenes</div>
                         </div>
                     </div>
-                    <br>
-                    <button class="reset-btn" onclick="resetForm()">Create Another Video</button>
+
+                    <div class="progress-header">
+                        <span class="progress-title">Creating Your Video</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressBar"></div>
+                    </div>
+
+                    <div class="log-panel-title">Live Log</div>
+                    <div class="live-log" id="liveLog"></div>
                 </div>
+
+                <!-- Review Section -->
+                <div class="review-panel" id="reviewSection" style="display: none;">
+                    <div class="review-title">🎬 Script Review</div>
+                    <div class="review-content" id="reviewContent"></div>
+                    <div class="review-actions">
+                        <button class="btn-approve" onclick="confirmGeneration()">✅ Approve & Generate</button>
+                        <button class="btn-cancel" onclick="cancelGeneration()">❌ Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Success Section -->
+                <div class="glass" id="successSection" style="display: none; text-align: center;">
+                    <div class="success-badge">🎉 Video Ready!</div>
+                    <div id="videoContainer" style="display: none;">
+                        <video id="successVideo" controls class="success-video"></video>
+                        <div class="success-actions">
+                            <a class="btn-watch" id="videoLink" target="_blank">▶️ Watch</a>
+                            <a class="btn-download" id="downloadLink" download>📥 Download</a>
+                        </div>
+                    </div>
+                    <div id="successMetadata"></div>
+                    <button class="btn-reset" onclick="resetForm()">Create Another Video</button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -627,43 +890,30 @@
         let timerInterval = null;
         let timerStartTime = null;
         let currentSessionId = null;
-        let selectedThumbnailIndex = 0; // which thumbnail prompt the user picked during review
+        let selectedThumbnailIndex = 0;
 
-        // Clean up the session's video from the server when the page is closed or refreshed
         window.addEventListener('pagehide', () => {
-            if (currentSessionId) {
-                navigator.sendBeacon(`/api/session/${currentSessionId}`, '');
-            }
+            if (currentSessionId) navigator.sendBeacon(`/api/session/${currentSessionId}`, '');
         });
 
         const icons = {
             script: '📝', image: '🖼️', audio: '🎙️', clip: '🎬',
-            scene_complete: '✅', assembly: '🔧', upload: '☁️', complete: '🎉', error: '❌',
-            previewReady: '👀',
-            upload: '📤'
+            scene_complete: '✅', assembly: '🔧', upload: '📤', complete: '🎉', error: '❌',
+            previewReady: '👀'
         };
 
         async function uploadSubscribeImage(input) {
             if (!input.files || !input.files[0]) return;
-
             const file = input.files[0];
             const formData = new FormData();
             formData.append('subscribeImage', file);
-
             const spinner = document.getElementById('uploadSpinner');
             const preview = document.getElementById('subscribePreview');
             const hiddenInput = document.getElementById('selectedSubscribeImage');
-
             spinner.style.display = 'block';
-
             try {
-                const response = await fetch('/api/upload-subscribe-image', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const response = await fetch('/api/upload-subscribe-image', { method: 'POST', body: formData });
                 const data = await response.json();
-
                 if (data.success) {
                     preview.src = '/' + data.path;
                     hiddenInput.value = data.path;
@@ -671,7 +921,6 @@
                     alert('Upload failed: ' + data.error);
                 }
             } catch (err) {
-                console.error(err);
                 alert('Upload failed. Please try again.');
             } finally {
                 spinner.style.display = 'none';
@@ -685,10 +934,7 @@
         }
 
         function stopTimer() {
-            if (timerInterval) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-            }
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         }
 
         function updateTimerDisplay() {
@@ -721,12 +967,8 @@
 
         function updateProgress(sceneIndex, totalScenes, step) {
             if (totalScenes === 0) return;
-
-            // Calculate progress: each scene has 3 steps (image, audio, clip)
-            // Plus 1 for script at start and 1 for assembly at end
             const totalSteps = (totalScenes * 3) + 2;
-            let currentStep = 1; // Script done
-
+            let currentStep = 1;
             if (step === 'script' || step === 'previewReady') {
                 currentStep = 1;
             } else if (step === 'complete') {
@@ -734,15 +976,12 @@
             } else if (step === 'assembly') {
                 currentStep = totalSteps - 1;
             } else {
-                // Each completed scene = 3 steps
                 const completedScenes = Math.max(0, sceneIndex - 1);
                 currentStep = 1 + (completedScenes * 3);
-
                 if (step === 'image') currentStep += 1;
                 else if (step === 'audio') currentStep += 2;
                 else if (step === 'clip' || step === 'scene_complete') currentStep += 3;
             }
-
             const percent = Math.min(100, Math.round((currentStep / totalSteps) * 100));
             document.getElementById('progressBar').style.width = `${percent}%`;
             document.getElementById('progressPercent').textContent = `${percent}%`;
@@ -752,9 +991,7 @@
             document.getElementById('duration').value = seconds;
             document.querySelectorAll('[data-duration]').forEach(btn => {
                 btn.classList.remove('active');
-                if (parseInt(btn.dataset.duration) === seconds) {
-                    btn.classList.add('active');
-                }
+                if (parseInt(btn.dataset.duration) === seconds) btn.classList.add('active');
             });
         }
 
@@ -762,16 +999,11 @@
             document.getElementById('genre').value = genre;
             document.querySelectorAll('[data-genre]').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.dataset.genre === genre) {
-                    btn.classList.add('active');
-                }
+                if (btn.dataset.genre === genre) btn.classList.add('active');
             });
 
-            // Show/hide comedy level selector
-            const comedyLevelSection = document.getElementById('comedyLevelSection');
-            comedyLevelSection.style.display = genre === 'comedy' ? 'block' : 'none';
+            document.getElementById('comedyLevelSection').style.display = genre === 'comedy' ? 'block' : 'none';
 
-            // Update topic placeholder for Did You Know
             const topicTextarea = document.getElementById('topic');
             if (genre === 'didyouknow') {
                 topicTextarea.placeholder = 'e.g., Honey never spoils — archaeologists found 3000-year-old edible honey in Egyptian tombs';
@@ -784,9 +1016,7 @@
             document.getElementById('comedyLevel').value = level;
             document.querySelectorAll('[data-comedy-level]').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.dataset.comedyLevel === level) {
-                    btn.classList.add('active');
-                }
+                if (btn.dataset.comedyLevel === level) btn.classList.add('active');
             });
         }
 
@@ -794,9 +1024,7 @@
             document.getElementById('language').value = language;
             document.querySelectorAll('[data-language]').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.dataset.language === language) {
-                    btn.classList.add('active');
-                }
+                if (btn.dataset.language === language) btn.classList.add('active');
             });
         }
 
@@ -817,23 +1045,23 @@
             }
             requestBody.topic = topic;
 
-            // Reset UI
+            // Switch to progress view
             document.getElementById('generateBtn').disabled = true;
             document.getElementById('btnText').textContent = 'Starting...';
             document.getElementById('spinner').style.display = 'block';
-            document.getElementById('progressSection').classList.add('visible');
-            document.getElementById('successSection').classList.remove('visible');
+            document.getElementById('idleState').style.display = 'none';
+            document.getElementById('progressCard').style.display = 'block';
+            document.getElementById('successSection').style.display = 'none';
             document.getElementById('reviewSection').style.display = 'none';
             document.getElementById('liveLog').innerHTML = '';
             document.getElementById('progressBar').style.width = '0%';
             document.getElementById('progressPercent').textContent = '0%';
+            document.getElementById('sceneCountDisplay').textContent = '—';
 
-            // Start the timer
             resetTimer();
             startTimer();
 
             try {
-                // Start video creation
                 const response = await fetch('/api/create-video', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -841,25 +1069,19 @@
                 });
 
                 const data = await response.json();
-
-                if (!data.success || !data.sessionId) {
-                    throw new Error(data.error || 'Failed to start video creation');
-                }
+                if (!data.success || !data.sessionId) throw new Error(data.error || 'Failed to start video creation');
 
                 currentSessionId = data.sessionId;
-
-                // Connect to SSE for progress updates
                 addLogEntry('script', 'Starting video creation...');
-
                 eventSource = new EventSource(`/api/progress/${data.sessionId}`);
 
                 eventSource.onmessage = (event) => {
                     const progress = JSON.parse(event.data);
-
                     if (progress.message) addLogEntry(progress.step, progress.message);
 
                     if (progress.totalScenes) {
                         totalScenes = progress.totalScenes;
+                        document.getElementById('sceneCountDisplay').textContent = totalScenes;
                     }
 
                     updateProgress(progress.sceneIndex || 0, totalScenes, progress.step);
@@ -871,14 +1093,12 @@
                         eventSource.close();
                         showError(progress.message);
                     } else if (progress.step === 'previewReady') {
-                        // Show review UI
-                        stopTimer(); // Pause timer while reviewing
+                        stopTimer();
                         renderReviewContent(progress.data);
                         document.getElementById('reviewSection').style.display = 'block';
                         document.getElementById('btnText').textContent = 'Reviewing...';
                         document.getElementById('spinner').style.display = 'none';
                     } else if (progress.step === 'thumbnailPreview') {
-                        // Swap spinner for actual generated image in the thumbnail card
                         const imgContainer = document.getElementById(`thumbImg_${progress.index}`);
                         if (imgContainer) {
                             imgContainer.innerHTML = `<img src="${progress.url}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Thumbnail ${progress.index + 1}">`;
@@ -886,9 +1106,7 @@
                     }
                 };
 
-                eventSource.onerror = () => {
-                    // Connection closed
-                };
+                eventSource.onerror = () => {};
 
             } catch (error) {
                 showError(error.message);
@@ -913,61 +1131,35 @@
             const container = document.getElementById('reviewContent');
             const langKey = data.language === 'english' ? 'audio_script_english' :
                 data.language === 'hindi' ? 'audio_script_hindi' : 'audio_script_gujarati';
-
             const yt = data.youtubeMetadata || {};
             const thumbnailPrompts = yt.thumbnail_prompts || [];
-
-            // Reset selection to first option
             selectedThumbnailIndex = 0;
 
-            // Build thumbnail selection HTML if prompts exist
             let thumbnailSelectionHtml = '';
             if (thumbnailPrompts.length > 0) {
                 const cards = thumbnailPrompts.map((prompt, i) => `
-                    <div id="thumbCard_${i}"
-                        onclick="selectThumbnail(${i})"
-                        style="
-                            cursor: pointer;
-                            border-radius: 8px;
-                            border: 2px solid ${i === 0 ? '#a855f7' : 'rgba(255,255,255,0.1)'};
-                            background: ${i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)'};
-                            font-size: 12px;
-                            color: #e5e7eb;
-                            flex: 1;
-                            min-width: 140px;
-                            max-width: 200px;
-                            overflow: hidden;
-                            transition: border 0.2s, background 0.2s;
-                        ">
-                        <div id="thumbImg_${i}" style="width: 100%; aspect-ratio: 9/16; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 22px;">
-                            ⏳
-                        </div>
-                        <div style="padding: 8px 10px;">
-                            <div style="color: ${i === 0 ? '#c084fc' : '#9ca3af'}; font-weight: 600; margin-bottom: 4px;" id="thumbLabel_${i}">
-                                ${i === 0 ? '✅' : '⬜'} Option ${i + 1}
-                            </div>
-                            <div style="font-size: 11px; color: #9ca3af;">${prompt}</div>
+                    <div id="thumbCard_${i}" onclick="selectThumbnail(${i})" style="cursor:pointer;border-radius:8px;border:2px solid ${i === 0 ? '#a855f7' : 'rgba(255,255,255,0.1)'};background:${i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.04)'};font-size:12px;color:#e5e7eb;flex:1;min-width:140px;max-width:200px;overflow:hidden;transition:border 0.2s,background 0.2s;">
+                        <div id="thumbImg_${i}" style="width:100%;aspect-ratio:9/16;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:22px;">⏳</div>
+                        <div style="padding:8px 10px;">
+                            <div style="color:${i === 0 ? '#c084fc' : '#9ca3af'};font-weight:600;margin-bottom:4px;" id="thumbLabel_${i}">${i === 0 ? '✅' : '⬜'} Option ${i + 1}</div>
+                            <div style="font-size:11px;color:#9ca3af;">${prompt}</div>
                         </div>
                     </div>`).join('');
-
                 thumbnailSelectionHtml = `
-                <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                    <h4 style="color: #a855f7; margin-bottom: 10px;">🖼️ Select Thumbnail Style</h4>
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                        ${cards}
-                    </div>
-                </div>`;
+                    <div style="margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                        <h4 style="color:#a855f7;margin-bottom:10px;">🖼️ Select Thumbnail Style</h4>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px;">${cards}</div>
+                    </div>`;
             }
 
             let html = thumbnailSelectionHtml + `
-            <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                <h4 style="color: #ec4899; margin-bottom: 8px;">📺 YouTube Shorts Metadata</h4>
-                <div style="margin-bottom: 8px;"><strong>Title:</strong> ${yt.title || 'N/A'}</div>
-                <div style="margin-bottom: 8px; font-size: 13px;"><strong>Description:</strong><br>${yt.description || 'N/A'}</div>
-                <div style="font-size: 12px;"><strong>Tags:</strong> ${(yt.tags || []).join(', ')}</div>
+            <div style="margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h4 style="color:#ec4899;margin-bottom:8px;">📺 YouTube Shorts Metadata</h4>
+                <div style="margin-bottom:8px;"><strong>Title:</strong> ${yt.title || 'N/A'}</div>
+                <div style="margin-bottom:8px;font-size:13px;"><strong>Description:</strong><br>${yt.description || 'N/A'}</div>
+                <div style="font-size:12px;"><strong>Tags:</strong> ${(yt.tags || []).join(', ')}</div>
             </div>
-
-            <div style="margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <div style="margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <strong>Script Title:</strong> ${data.videoTitle}<br>
                 <strong>Language:</strong> ${data.language}
             </div>`;
@@ -975,16 +1167,13 @@
             data.scenes.forEach((scene, index) => {
                 const narration = scene[langKey];
                 const prompts = scene.image_prompts || [scene.image_prompt];
-
                 html += `
-                <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                    <h4 style="color: #a855f7; margin-bottom: 8px;">Scene ${index + 1}</h4>
-                    <p style="margin-bottom: 10px; color: #e5e7eb;"><strong>🎙️ Narration:</strong><br>${narration}</p>
-                    <div style="font-size: 13px; color: #9ca3af;">
+                <div style="background:rgba(255,255,255,0.04);padding:15px;border-radius:10px;margin-bottom:10px;">
+                    <h4 style="color:#a855f7;margin-bottom:8px;">Scene ${index + 1}</h4>
+                    <p style="margin-bottom:10px;color:#e5e7eb;"><strong>🎙️ Narration:</strong><br>${narration}</p>
+                    <div style="font-size:13px;color:#9ca3af;">
                         <strong>🖼️ Image Prompts:</strong>
-                        <ul style="padding-left: 20px; margin-top: 5px;">
-                            ${prompts.map(p => `<li>${p}</li>`).join('')}
-                        </ul>
+                        <ul style="padding-left:20px;margin-top:5px;">${prompts.map(p => `<li>${p}</li>`).join('')}</ul>
                     </div>
                 </div>`;
             });
@@ -996,18 +1185,15 @@
             document.getElementById('reviewSection').style.display = 'none';
             document.getElementById('btnText').textContent = 'Generating...';
             document.getElementById('spinner').style.display = 'block';
-            startTimer(); // Resume timer
-
+            startTimer();
             try {
                 const response = await fetch('/api/confirm-video', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sessionId: currentSessionId, selectedThumbnailIndex })
                 });
-
                 const data = await response.json();
                 if (!data.success) throw new Error(data.error);
-
                 addLogEntry('script', 'Plan approved! Resuming generation...');
             } catch (e) {
                 showError(e.message);
@@ -1020,91 +1206,75 @@
         }
 
         function showSuccess(videoUrl, youtubeMetadata) {
-            stopTimer(); // Stop the timer on success
+            stopTimer();
             document.getElementById('generateBtn').disabled = false;
-            document.getElementById('btnText').textContent = 'Generate Video';
+            document.getElementById('btnText').textContent = '✨ Generate Video';
             document.getElementById('spinner').style.display = 'none';
-            document.getElementById('successSection').classList.add('visible');
+            document.getElementById('successSection').style.display = 'block';
 
-            // Show video player and set links
             const videoContainer = document.getElementById('videoContainer');
             const successVideo = document.getElementById('successVideo');
-            const downloadLink = document.getElementById('downloadLink');
-
             videoContainer.style.display = 'block';
             successVideo.src = videoUrl;
             document.getElementById('videoLink').href = videoUrl;
+            const downloadLink = document.getElementById('downloadLink');
             downloadLink.href = videoUrl + '?download=1';
             downloadLink.setAttribute('download', '');
 
-            // Render YouTube Metadata in Success Box
             const yt = youtubeMetadata || {};
-            const successBox = document.querySelector('.success-box');
-
-            // Remove existing metadata if any (to prevent duplicates on multiple runs)
-            const existingMeta = document.getElementById('successMetadata');
-            if (existingMeta) existingMeta.remove();
-
-            const metaDiv = document.createElement('div');
-            metaDiv.id = 'successMetadata';
-            metaDiv.style.marginTop = '20px';
-            metaDiv.style.textAlign = 'left';
-            metaDiv.style.background = 'rgba(0,0,0,0.2)';
-            metaDiv.style.padding = '15px';
-            metaDiv.style.borderRadius = '8px';
+            const metaContainer = document.getElementById('successMetadata');
+            metaContainer.innerHTML = '';
 
             let thumbnailsHtml = '';
             if (yt.thumbnails && yt.thumbnails.length > 0) {
                 thumbnailsHtml = `
-                <div style="margin-top: 15px;">
+                <div style="margin-top:15px;">
                     <strong>📸 Viral Thumbnails:</strong>
-                    <div style="display: flex; gap: 10px; margin-top: 10px; overflow-x: auto;">
+                    <div style="display:flex;gap:10px;margin-top:10px;overflow-x:auto;">
                         ${yt.thumbnails.map(url => `
                             <div>
-                                <img src="${url}" style="height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
-                                <div style="margin-top: 5px; text-align: center;">
-                                    <a href="${url}" target="_blank" style="color: #a855f7; font-size: 12px; text-decoration: none;">Download</a>
+                                <img src="${url}" style="height:150px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);">
+                                <div style="margin-top:5px;text-align:center;">
+                                    <a href="${url}" target="_blank" style="color:#a855f7;font-size:12px;text-decoration:none;">Download</a>
                                 </div>
-                            </div>
-                        `).join('')}
+                            </div>`).join('')}
                     </div>
                 </div>`;
             }
 
-            metaDiv.innerHTML = `
-                <h4 style="color: #ec4899; margin-bottom: 10px; text-align: center;">COPY FOR YOUTUBE</h4>
-                <div style="margin-bottom: 10px;">
-                    <strong>TITLE:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 13px;">${yt.title || '-'}</div>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <strong>DESCRIPTION:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px; max-height: 100px; overflow-y: auto;">${yt.description || '-'}</div>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <strong>TAGS:</strong>
-                    <div style="background: rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; margin-top: 2px; font-size: 12px;">${(yt.tags || []).join(', ')}</div>
-                </div>
-                ${thumbnailsHtml}
-            `;
-
-            // Insert before the "Watch Video" link or append
-            successBox.insertBefore(metaDiv, document.getElementById('videoLink'));
+            metaContainer.innerHTML = `
+                <div class="meta-box" style="margin-bottom:16px;">
+                    <div class="meta-box-title">Copy for YouTube</div>
+                    <div class="meta-field">
+                        <div class="meta-key">Title</div>
+                        <div class="meta-value">${yt.title || '—'}</div>
+                    </div>
+                    <div class="meta-field">
+                        <div class="meta-key">Description</div>
+                        <div class="meta-value scrollable">${yt.description || '—'}</div>
+                    </div>
+                    <div class="meta-field">
+                        <div class="meta-key">Tags</div>
+                        <div class="meta-value">${(yt.tags || []).join(', ') || '—'}</div>
+                    </div>
+                    ${thumbnailsHtml}
+                </div>`;
         }
 
         function showError(message) {
-            stopTimer(); // Stop the timer on error
+            stopTimer();
             document.getElementById('generateBtn').disabled = false;
-            document.getElementById('btnText').textContent = 'Generate Video';
+            document.getElementById('btnText').textContent = '✨ Generate Video';
             document.getElementById('spinner').style.display = 'none';
             addLogEntry('error', `Error: ${message}`);
         }
 
         function resetForm() {
-            resetTimer(); // Reset the timer
+            resetTimer();
             document.getElementById('topic').value = '';
-            document.getElementById('progressSection').classList.remove('visible');
-            document.getElementById('successSection').classList.remove('visible');
+            document.getElementById('progressCard').style.display = 'none';
+            document.getElementById('idleState').style.display = 'block';
+            document.getElementById('successSection').style.display = 'none';
             document.getElementById('reviewSection').style.display = 'none';
             document.getElementById('liveLog').innerHTML = '';
             if (eventSource) eventSource.close();
