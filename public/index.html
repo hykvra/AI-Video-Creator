@@ -780,6 +780,26 @@
                         placeholder="e.g., The History of Ancient Egypt, Benefits of Yoga, Space Exploration..."></textarea>
                 </div>
 
+                <!-- Transition Effect -->
+                <div class="form-section">
+                    <div class="section-label">Scene Transition</div>
+                    <div class="pill-group">
+                        <button type="button" class="pill active" data-transition="cut"
+                            onclick="selectTransition('cut')">✂️ Cut</button>
+                        <button type="button" class="pill" data-transition="fade"
+                            onclick="selectTransition('fade')">🌅 Crossfade</button>
+                        <button type="button" class="pill" data-transition="dissolve"
+                            onclick="selectTransition('dissolve')">✨ Dissolve</button>
+                        <button type="button" class="pill" data-transition="wiperight"
+                            onclick="selectTransition('wiperight')">➡️ Wipe</button>
+                        <button type="button" class="pill" data-transition="slideright"
+                            onclick="selectTransition('slideright')">↪️ Slide</button>
+                        <button type="button" class="pill" data-transition="fadeblack"
+                            onclick="selectTransition('fadeblack')">⬛ Fade Black</button>
+                    </div>
+                    <input type="hidden" id="transition" value="cut">
+                </div>
+
                 <!-- Preview Toggle -->
                 <div class="form-section">
                     <label class="toggle-row" for="previewMode">
@@ -982,6 +1002,14 @@
             });
         }
 
+        function selectTransition(value) {
+            document.getElementById('transition').value = value;
+            document.querySelectorAll('[data-transition]').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.transition === value) btn.classList.add('active');
+            });
+        }
+
         function selectLanguage(language) {
             document.getElementById('language').value = language;
             document.querySelectorAll('[data-language]').forEach(btn => {
@@ -997,8 +1025,9 @@
             const language = document.getElementById('language').value || 'gujarati';
             const preview = document.getElementById('previewMode').checked;
             const subscribeImage = document.getElementById('selectedSubscribeImage').value;
+            const transition = document.getElementById('transition').value || 'cut';
 
-            let requestBody = { duration, genre, comedyLevel, language, preview, subscribeImage };
+            let requestBody = { duration, genre, comedyLevel, language, preview, subscribeImage, transition };
 
             const topic = document.getElementById('topic').value.trim();
             if (!topic) {

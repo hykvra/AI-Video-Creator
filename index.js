@@ -1085,6 +1085,70 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
  * );
  */
 /**
+ * Available xfade transition effects for scene-to-scene transitions.
+ * 'cut' means a hard cut (no transition, uses concat demuxer).
+ */
+const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'zoomin', 'fadeblack', 'fadewhite'];
+
+/**
+ * Concatenate video clips with a transition effect between each pair.
+ * Uses FFmpeg's xfade (video) and acrossfade (audio) filters.
+ *
+ * @param {string[]} clipPaths - Ordered array of clip file paths
+ * @param {string} outputPath - Output file path
+ * @param {string} transition - xfade transition name (e.g. 'fade', 'dissolve')
+ * @param {number} transitionDuration - Overlap duration in seconds (default 0.5)
+ */
+async function concatenateClipsWithTransition(clipPaths, outputPath, transition = 'fade', transitionDuration = 0.5) {
+    if (clipPaths.length === 0) throw new Error('No clips to concatenate');
+    if (clipPaths.length === 1) {
+        fs.copyFileSync(clipPaths[0], outputPath);
+        return outputPath;
+    }
+
+    const durations = await Promise.all(clipPaths.map(p => getAudioDuration(p)));
+    const td = transitionDuration;
+
+    return new Promise((resolve, reject) => {
+        const cmd = ffmpeg();
+        clipPaths.forEach(p => cmd.input(p));
+
+        const vParts = [];
+        const aParts = [];
+        let offset = 0;
+
+        for (let i = 0; i < clipPaths.length - 1; i++) {
+            offset += durations[i] - td;
+            const inV = i === 0 ? '[0:v]' : `[v${i}]`;
+            const inA = i === 0 ? '[0:a]' : `[a${i}]`;
+            const outV = `[v${i + 1}]`;
+            const outA = `[a${i + 1}]`;
+            vParts.push(`${inV}[${i + 1}:v]xfade=transition=${transition}:duration=${td}:offset=${offset.toFixed(3)}${outV}`);
+            aParts.push(`${inA}[${i + 1}:a]acrossfade=d=${td}${outA}`);
+        }
+
+        const lastIdx = clipPaths.length - 1;
+        const complexFilter = [...vParts, ...aParts].join(';');
+
+        cmd
+            .complexFilter(complexFilter)
+            .outputOptions([
+                '-map', `[v${lastIdx}]`,
+                '-map', `[a${lastIdx}]`,
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-movflags', '+faststart'
+            ])
+            .output(outputPath)
+            .on('end', () => resolve(outputPath))
+            .on('error', reject)
+            .run();
+    });
+}
+
+/**
  * Convert a still image into a 1-second silent video clip (for thumbnail prepend)
  */
 function createThumbnailClip(imagePath, outputPath, width = 720, height = 1280) {
@@ -1292,7 +1356,7 @@ const pendingSessions = new Map();
  * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
  * @returns {Promise<void>}
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, genre = 'informative', previewThumbnailPath = null) {
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, genre = 'informative', previewThumbnailPath = null, transition = 'cut') {
     console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
     const tempFiles = []; // Track temp files for this processing session
 
@@ -1606,7 +1670,11 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         });
 
         const finalVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
-        await concatenateClips(clipPaths, finalVideoPath);
+        if (transition && transition !== 'cut' && clipPaths.length > 1) {
+            await concatenateClipsWithTransition(clipPaths, finalVideoPath, transition);
+        } else {
+            await concatenateClips(clipPaths, finalVideoPath);
+        }
 
         const videoUrl = `/api/video/${sessionId}`;
 
@@ -1700,7 +1768,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
  * @param {string} [subscribeImage] - Optional custom subscribe image path
  */
 app.post('/api/create-video', async (req, res) => {
-    const { topic, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null } = req.body;
+    const { topic, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null, transition = 'cut' } = req.body;
     const targetDuration = Math.max(30, Math.min(300, parseInt(duration) || 45));
     const validGenres = ['informative', 'comedy', 'storytelling', 'motivational', 'didyouknow'];
     const selectedGenre = validGenres.includes(genre) ? genre : 'informative';
@@ -1708,6 +1776,7 @@ app.post('/api/create-video', async (req, res) => {
     const selectedComedyLevel = validComedyLevels.includes(comedyLevel) ? comedyLevel : 'mild';
     const validLanguages = ['gujarati', 'hindi', 'english'];
     const selectedLanguage = validLanguages.includes(language) ? language : 'gujarati';
+    const selectedTransition = VALID_TRANSITIONS.includes(transition) ? transition : 'cut';
     const sessionId = Date.now().toString();
 
     // Validation
@@ -1755,7 +1824,8 @@ app.post('/api/create-video', async (req, res) => {
                 selectedLanguage,
                 youtubeMetadata,
                 subscribeImage,
-                genre: selectedGenre
+                genre: selectedGenre,
+                transition: selectedTransition
             });
 
             // Send preview data via SSE
@@ -1813,7 +1883,7 @@ app.post('/api/create-video', async (req, res) => {
         }
 
         // If not preview, proceed immediately
-        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, selectedGenre);
+        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, selectedGenre, null, selectedTransition);
 
     } catch (error) {
         console.error('Script generation failed:', error);
@@ -1881,7 +1951,8 @@ app.post('/api/confirm-video', async (req, res) => {
         youtubeMetadata,
         sessionData.subscribeImage,
         sessionData.genre || 'informative',
-        previewThumbnailPath
+        previewThumbnailPath,
+        sessionData.transition || 'cut'
     );
 });
 
