@@ -782,7 +782,7 @@
 
                 <!-- Transition Effect -->
                 <div class="form-section">
-                    <div class="section-label">Scene Transition</div>
+                    <div class="section-label">Scene Transition <span style="font-size:11px;color:#6b7280;font-weight:400;">— select multiple to randomize per scene</span></div>
                     <div class="pill-group">
                         <button type="button" class="pill active" data-transition="cut"
                             onclick="selectTransition('cut')">✂️ Cut</button>
@@ -797,7 +797,6 @@
                         <button type="button" class="pill" data-transition="fadeblack"
                             onclick="selectTransition('fadeblack')">⬛ Fade Black</button>
                     </div>
-                    <input type="hidden" id="transition" value="cut">
                 </div>
 
                 <!-- Preview Toggle -->
@@ -1003,11 +1002,25 @@
         }
 
         function selectTransition(value) {
-            document.getElementById('transition').value = value;
-            document.querySelectorAll('[data-transition]').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.transition === value) btn.classList.add('active');
-            });
+            const allBtns = document.querySelectorAll('[data-transition]');
+            const clickedBtn = document.querySelector(`[data-transition="${value}"]`);
+            const isActive = clickedBtn.classList.contains('active');
+
+            if (value === 'cut') {
+                // Cut is exclusive — select only cut
+                allBtns.forEach(btn => btn.classList.remove('active'));
+                clickedBtn.classList.add('active');
+            } else {
+                // Deselect cut whenever an effect is chosen
+                document.querySelector('[data-transition="cut"]').classList.remove('active');
+                if (isActive) {
+                    // Only allow deselect if another effect stays active
+                    const activeEffects = document.querySelectorAll('[data-transition]:not([data-transition="cut"]).active');
+                    if (activeEffects.length > 1) clickedBtn.classList.remove('active');
+                } else {
+                    clickedBtn.classList.add('active');
+                }
+            }
         }
 
         function selectLanguage(language) {
@@ -1025,7 +1038,7 @@
             const language = document.getElementById('language').value || 'gujarati';
             const preview = document.getElementById('previewMode').checked;
             const subscribeImage = document.getElementById('selectedSubscribeImage').value;
-            const transition = document.getElementById('transition').value || 'cut';
+            const transition = Array.from(document.querySelectorAll('[data-transition].active')).map(b => b.dataset.transition);
 
             let requestBody = { duration, genre, comedyLevel, language, preview, subscribeImage, transition };
 

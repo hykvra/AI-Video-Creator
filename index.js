@@ -1099,12 +1099,16 @@ const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', '
  * @param {string} transition - xfade transition name (e.g. 'fade', 'dissolve')
  * @param {number} transitionDuration - Overlap duration in seconds (default 0.5)
  */
-async function concatenateClipsWithTransition(clipPaths, outputPath, transition = 'fade', transitionDuration = 0.5) {
+async function concatenateClipsWithTransition(clipPaths, outputPath, transitions = ['fade'], transitionDuration = 0.5) {
     if (clipPaths.length === 0) throw new Error('No clips to concatenate');
     if (clipPaths.length === 1) {
         fs.copyFileSync(clipPaths[0], outputPath);
         return outputPath;
     }
+
+    // Normalise to array and strip 'cut' — this function always applies an effect
+    const pool = (Array.isArray(transitions) ? transitions : [transitions]).filter(t => t !== 'cut');
+    if (pool.length === 0) pool.push('fade');
 
     const durations = await Promise.all(clipPaths.map(p => getAudioDuration(p)));
     const td = transitionDuration;
@@ -1119,11 +1123,12 @@ async function concatenateClipsWithTransition(clipPaths, outputPath, transition 
 
         for (let i = 0; i < clipPaths.length - 1; i++) {
             offset += durations[i] - td;
+            const effect = pool[Math.floor(Math.random() * pool.length)];
             const inV = i === 0 ? '[0:v]' : `[v${i}]`;
             const inA = i === 0 ? '[0:a]' : `[a${i}]`;
             const outV = `[v${i + 1}]`;
             const outA = `[a${i + 1}]`;
-            vParts.push(`${inV}[${i + 1}:v]xfade=transition=${transition}:duration=${td}:offset=${offset.toFixed(3)}${outV}`);
+            vParts.push(`${inV}[${i + 1}:v]xfade=transition=${effect}:duration=${td}:offset=${offset.toFixed(3)}${outV}`);
             aParts.push(`${inA}[${i + 1}:a]acrossfade=d=${td}${outA}`);
         }
 
@@ -1670,8 +1675,10 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, yo
         });
 
         const finalVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
-        if (transition && transition !== 'cut' && clipPaths.length > 1) {
-            await concatenateClipsWithTransition(clipPaths, finalVideoPath, transition);
+        const transitionPool = (Array.isArray(transition) ? transition : [transition]).filter(t => VALID_TRANSITIONS.includes(t));
+        const effectPool = transitionPool.filter(t => t !== 'cut');
+        if (effectPool.length > 0 && clipPaths.length > 1) {
+            await concatenateClipsWithTransition(clipPaths, finalVideoPath, effectPool);
         } else {
             await concatenateClips(clipPaths, finalVideoPath);
         }
@@ -1776,7 +1783,9 @@ app.post('/api/create-video', async (req, res) => {
     const selectedComedyLevel = validComedyLevels.includes(comedyLevel) ? comedyLevel : 'mild';
     const validLanguages = ['gujarati', 'hindi', 'english'];
     const selectedLanguage = validLanguages.includes(language) ? language : 'gujarati';
-    const selectedTransition = VALID_TRANSITIONS.includes(transition) ? transition : 'cut';
+    const rawTransitions = Array.isArray(transition) ? transition : [transition];
+    const validPool = rawTransitions.filter(t => VALID_TRANSITIONS.includes(t));
+    const selectedTransition = validPool.length > 0 ? validPool : ['cut'];
     const sessionId = Date.now().toString();
 
     // Validation
