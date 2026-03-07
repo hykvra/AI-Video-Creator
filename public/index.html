@@ -837,6 +837,8 @@
                         <div class="progress-fill" id="progressBar"></div>
                     </div>
 
+                    <div id="scriptMeta" style="display:none;margin-top:12px;background:rgba(0,0,0,0.28);border-radius:10px;padding:12px;text-align:left;font-size:13px;"></div>
+
                     <div class="log-panel-title">Live Log</div>
                     <div class="live-log" id="liveLog"></div>
                 </div>
@@ -1046,6 +1048,26 @@
 
                     updateProgress(progress.sceneIndex || 0, totalScenes, progress.step);
 
+                    if (progress.step === 'script' && progress.youtubeMetadata) {
+                        const yt = progress.youtubeMetadata;
+                        const el = document.getElementById('scriptMeta');
+                        el.innerHTML = `
+                            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#f472b6;margin-bottom:10px;">📺 YouTube Metadata</div>
+                            <div style="margin-bottom:8px;">
+                                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Title</div>
+                                <div style="background:rgba(255,255,255,0.05);padding:7px 10px;border-radius:7px;color:#e5e7eb;">${yt.title || '—'}</div>
+                            </div>
+                            <div style="margin-bottom:8px;">
+                                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Description</div>
+                                <div style="background:rgba(255,255,255,0.05);padding:7px 10px;border-radius:7px;color:#e5e7eb;max-height:70px;overflow-y:auto;font-size:12px;line-height:1.5;">${yt.description || '—'}</div>
+                            </div>
+                            <div>
+                                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Tags</div>
+                                <div style="background:rgba(255,255,255,0.05);padding:7px 10px;border-radius:7px;color:#e5e7eb;font-size:12px;">${(yt.tags || []).join(', ') || '—'}</div>
+                            </div>`;
+                        el.style.display = 'block';
+                    }
+
                     if (progress.step === 'complete') {
                         eventSource.close();
                         showSuccess(progress.videoUrl, progress.youtubeMetadata);
@@ -1239,6 +1261,9 @@
             document.getElementById('successSection').style.display = 'none';
             document.getElementById('reviewSection').style.display = 'none';
             document.getElementById('liveLog').innerHTML = '';
+            const scriptMeta = document.getElementById('scriptMeta');
+            scriptMeta.style.display = 'none';
+            scriptMeta.innerHTML = '';
             if (eventSource) eventSource.close();
         }
 

@@ -1742,7 +1742,8 @@ app.post('/api/create-video', async (req, res) => {
             status: 'completed',
             message: `Generated ${scenes.length} scenes - "${videoTitle}"`,
             sceneIndex: 0,
-            totalScenes: scenes.length
+            totalScenes: scenes.length,
+            youtubeMetadata
         });
 
         // PREVIEW MODE CHECK
