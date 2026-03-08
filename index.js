@@ -1110,47 +1110,61 @@ async function concatenateClipsWithTransition(clipPaths, outputPath, transitions
     const pool = (Array.isArray(transitions) ? transitions : [transitions]).filter(t => t !== 'cut');
     if (pool.length === 0) pool.push('fade');
 
-    const durations = await Promise.all(clipPaths.map(p => getAudioDuration(p)));
     const td = transitionDuration;
+    const tempDir = path.dirname(outputPath);
+    const tempFiles = [];
 
-    return new Promise((resolve, reject) => {
-        const cmd = ffmpeg();
-        clipPaths.forEach(p => cmd.input(p));
+    // Process pairwise (two clips at a time) to keep memory usage low.
+    // Each iteration merges `currentInput` with the next clip into a temp file.
+    let currentInput = clipPaths[0];
 
-        const vParts = [];
-        const aParts = [];
-        let offset = 0;
-
-        for (let i = 0; i < clipPaths.length - 1; i++) {
-            offset += durations[i] - td;
+    try {
+        for (let i = 1; i < clipPaths.length; i++) {
             const effect = pool[Math.floor(Math.random() * pool.length)];
-            const inV = i === 0 ? '[0:v]' : `[v${i}]`;
-            const inA = i === 0 ? '[0:a]' : `[a${i}]`;
-            const outV = `[v${i + 1}]`;
-            const outA = `[a${i + 1}]`;
-            vParts.push(`${inV}[${i + 1}:v]xfade=transition=${effect}:duration=${td}:offset=${offset.toFixed(3)}${outV}`);
-            aParts.push(`${inA}[${i + 1}:a]acrossfade=d=${td}${outA}`);
+            const isLast = i === clipPaths.length - 1;
+            const pairOut = isLast ? outputPath : path.join(tempDir, `xfade_tmp_${Date.now()}_${i}.mp4`);
+            if (!isLast) tempFiles.push(pairOut);
+
+            const d1 = await getAudioDuration(currentInput);
+            const offset = Math.max(0, d1 - td);
+
+            await new Promise((resolve, reject) => {
+                ffmpeg()
+                    .input(currentInput)
+                    .input(clipPaths[i])
+                    .complexFilter([
+                        `[0:v][1:v]xfade=transition=${effect}:duration=${td}:offset=${offset.toFixed(3)}[vout]`,
+                        `[0:a][1:a]acrossfade=d=${td}[aout]`
+                    ])
+                    .outputOptions([
+                        '-map', '[vout]',
+                        '-map', '[aout]',
+                        '-c:v', 'libx264',
+                        '-preset', 'veryfast',
+                        '-crf', '23',
+                        '-c:a', 'aac',
+                        '-b:a', '192k',
+                        '-movflags', '+faststart'
+                    ])
+                    .output(pairOut)
+                    .on('end', resolve)
+                    .on('error', reject)
+                    .run();
+            });
+
+            // Delete the previous temp file once it has been consumed
+            if (i > 1 && tempFiles.includes(currentInput)) {
+                try { fs.unlinkSync(currentInput); } catch {}
+                tempFiles.splice(tempFiles.indexOf(currentInput), 1);
+            }
+            currentInput = pairOut;
         }
+    } catch (err) {
+        tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+        throw err;
+    }
 
-        const lastIdx = clipPaths.length - 1;
-        const complexFilter = [...vParts, ...aParts].join(';');
-
-        cmd
-            .complexFilter(complexFilter)
-            .outputOptions([
-                '-map', `[v${lastIdx}]`,
-                '-map', `[a${lastIdx}]`,
-                '-c:v', 'libx264',
-                '-preset', 'fast',
-                '-c:a', 'aac',
-                '-b:a', '192k',
-                '-movflags', '+faststart'
-            ])
-            .output(outputPath)
-            .on('end', () => resolve(outputPath))
-            .on('error', reject)
-            .run();
-    });
+    return outputPath;
 }
 
 /**
