@@ -1091,79 +1091,125 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
 const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'zoomin', 'fadeblack', 'fadewhite'];
 
 /**
+ * Stream-copy a time-bounded segment from a clip.
+ * Fast and memory-free — no re-encoding.
+ */
+function extractSegment(inputPath, outputPath, startSec, durationSec) {
+    return new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+            .seekInput(startSec)
+            .duration(durationSec)
+            .outputOptions(['-c', 'copy'])
+            .output(outputPath)
+            .on('end', resolve)
+            .on('error', reject)
+            .run();
+    });
+}
+
+/**
+ * Apply xfade between two pre-extracted short segments (each ~td seconds).
+ * This is the only memory-intensive step, but it only ever processes 2×td
+ * seconds of video, keeping peak memory usage constant regardless of clip count.
+ */
+function xfadeSegments(pathA, pathB, outputPath, effect, td) {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(pathA)
+            .input(pathB)
+            .complexFilter([
+                `[0:v][1:v]xfade=transition=${effect}:duration=${td}:offset=0[vout]`,
+                `[0:a][1:a]acrossfade=d=${td}[aout]`
+            ])
+            .outputOptions([
+                '-map', '[vout]', '-map', '[aout]',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k',
+                '-threads', '1',
+            ])
+            .output(outputPath)
+            .on('end', resolve)
+            .on('error', reject)
+            .run();
+    });
+}
+
+/**
  * Concatenate video clips with a transition effect between each pair.
- * Uses FFmpeg's xfade (video) and acrossfade (audio) filters.
+ *
+ * Strategy: stream-copy the body of each clip untouched, and only run xfade
+ * on the tiny tail+head segments at each boundary (~2×td seconds total).
+ * This keeps peak ffmpeg memory constant regardless of clip count or length.
  *
  * @param {string[]} clipPaths - Ordered array of clip file paths
  * @param {string} outputPath - Output file path
- * @param {string} transition - xfade transition name (e.g. 'fade', 'dissolve')
- * @param {number} transitionDuration - Overlap duration in seconds (default 0.5)
+ * @param {string|string[]} transitions - xfade effect name(s); one is picked randomly per boundary
+ * @param {number} transitionDuration - Overlap duration in seconds (default 0.3)
  */
-async function concatenateClipsWithTransition(clipPaths, outputPath, transitions = ['fade'], transitionDuration = 0.5) {
+async function concatenateClipsWithTransition(clipPaths, outputPath, transitions = ['fade'], transitionDuration = 0.3) {
     if (clipPaths.length === 0) throw new Error('No clips to concatenate');
     if (clipPaths.length === 1) {
         fs.copyFileSync(clipPaths[0], outputPath);
         return outputPath;
     }
 
-    // Normalise to array and strip 'cut' — this function always applies an effect
     const pool = (Array.isArray(transitions) ? transitions : [transitions]).filter(t => t !== 'cut');
     if (pool.length === 0) pool.push('fade');
 
     const td = transitionDuration;
     const tempDir = path.dirname(outputPath);
     const tempFiles = [];
-
-    // Process pairwise (two clips at a time) to keep memory usage low.
-    // Each iteration merges `currentInput` with the next clip into a temp file.
-    let currentInput = clipPaths[0];
+    const parts = [];
 
     try {
-        for (let i = 1; i < clipPaths.length; i++) {
-            const effect = pool[Math.floor(Math.random() * pool.length)];
+        const durations = await Promise.all(clipPaths.map(p => getAudioDuration(p)));
+
+        for (let i = 0; i < clipPaths.length; i++) {
+            const dur = durations[i];
+            const isFirst = i === 0;
             const isLast = i === clipPaths.length - 1;
-            const pairOut = isLast ? outputPath : path.join(tempDir, `xfade_tmp_${Date.now()}_${i}.mp4`);
-            if (!isLast) tempFiles.push(pairOut);
 
-            const d1 = await getAudioDuration(currentInput);
-            const offset = Math.max(0, d1 - td);
+            // Body: the part of this clip outside the transition zones (stream copy)
+            const bodyStart = isFirst ? 0 : td;
+            const bodyEnd = isLast ? dur : Math.max(bodyStart + 0.1, dur - td);
 
-            await new Promise((resolve, reject) => {
-                ffmpeg()
-                    .input(currentInput)
-                    .input(clipPaths[i])
-                    .complexFilter([
-                        `[0:v][1:v]xfade=transition=${effect}:duration=${td}:offset=${offset.toFixed(3)}[vout]`,
-                        `[0:a][1:a]acrossfade=d=${td}[aout]`
-                    ])
-                    .outputOptions([
-                        '-map', '[vout]',
-                        '-map', '[aout]',
-                        '-c:v', 'libx264',
-                        '-preset', 'veryfast',
-                        '-crf', '23',
-                        '-c:a', 'aac',
-                        '-b:a', '192k',
-                        '-movflags', '+faststart'
-                    ])
-                    .output(pairOut)
-                    .on('end', resolve)
-                    .on('error', reject)
-                    .run();
-            });
-
-            // Delete the previous temp file once it has been consumed
-            if (i > 1 && tempFiles.includes(currentInput)) {
-                try { fs.unlinkSync(currentInput); } catch {}
-                tempFiles.splice(tempFiles.indexOf(currentInput), 1);
+            if (bodyEnd - bodyStart >= 0.1) {
+                const bodyPath = path.join(tempDir, `tr_body_${i}_${Date.now()}.mp4`);
+                tempFiles.push(bodyPath);
+                await extractSegment(clipPaths[i], bodyPath, bodyStart, bodyEnd - bodyStart);
+                parts.push(bodyPath);
             }
-            currentInput = pairOut;
+
+            // Transition segment between clip i and clip i+1
+            if (!isLast) {
+                const effect = pool[Math.floor(Math.random() * pool.length)];
+                const tailPath = path.join(tempDir, `tr_tail_${i}_${Date.now()}.mp4`);
+                const headPath = path.join(tempDir, `tr_head_${i}_${Date.now()}.mp4`);
+                const transPath = path.join(tempDir, `tr_xfade_${i}_${Date.now()}.mp4`);
+                tempFiles.push(tailPath, headPath, transPath);
+
+                // Only ~td seconds extracted from each side — tiny memory footprint for xfade
+                await extractSegment(clipPaths[i], tailPath, Math.max(0, dur - td), Math.min(td, dur));
+                await extractSegment(clipPaths[i + 1], headPath, 0, Math.min(td, durations[i + 1]));
+                await xfadeSegments(tailPath, headPath, transPath, effect, td);
+                parts.push(transPath);
+            }
         }
+
+        // Final stitch: concatenateClips re-encodes everything in one pass,
+        // so mixed stream-copy + xfade-encoded parts are handled transparently.
+        await concatenateClips(parts, outputPath);
+
     } catch (err) {
+        console.error('[transition] failed, falling back to hard cut:', err.message);
         tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
-        throw err;
+        try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
+        await concatenateClips(clipPaths, outputPath);
+        return outputPath;
     }
 
+    tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
     return outputPath;
 }
 
