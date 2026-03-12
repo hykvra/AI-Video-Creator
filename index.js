@@ -483,6 +483,7 @@ IMPORTANT: Return a JSON object with:
 
 CRITICAL - IMAGE PROMPT RULES:
 - Literal visual representation. Photorealistic.
+- Any text, signs, labels, or typography shown in the image must be in English only. Never use Gujarati, Hindi (Devanagari), Arabic, or any non-Latin script in image prompts or in the generated image content.
 - Keep the JSON response complete and valid. Do not truncate.`;
 
     const result = await generateWithRetry(prompt);
@@ -648,12 +649,14 @@ function createPlaceholderImage(outputPath) {
  *   3
  * );
  */
+const IMAGE_TEXT_RULE = `Any text, labels, signs, captions, or typography visible in the image MUST be in English only. Do NOT use any non-English script, Devanagari, Gujarati, Arabic, or any other non-Latin writing system. No decorative non-English fonts.`;
+
 const GENRE_IMAGE_PROMPT_PREFIX = {
-    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition.`,
-    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor.`,
-    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth.`,
-    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing.`,
-    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly.`
+    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition. ${IMAGE_TEXT_RULE}`,
+    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor. ${IMAGE_TEXT_RULE}`,
+    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth. ${IMAGE_TEXT_RULE}`,
+    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing. ${IMAGE_TEXT_RULE}`,
+    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly. ${IMAGE_TEXT_RULE}`
 };
 
 async function generateImage(prompt, outputPath, genre = 'informative') {
@@ -1108,10 +1111,9 @@ const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', '
 
 /**
  * Extract a time-bounded segment from a clip and re-encode it.
- * Re-encoding (rather than stream copy) guarantees clean, zero-based
- * audio+video timestamps regardless of keyframe positions, which is
- * required for the concat demuxer to produce correct audio in the
- * final assembly pass.
+ * Re-encoding guarantees clean timestamps. setpts/asetpts resets both
+ * video and audio timestamps to zero — critical for the concat demuxer
+ * to produce continuous, in-sync audio across all parts.
  */
 function extractSegment(inputPath, outputPath, startSec, durationSec) {
     return new Promise((resolve, reject) => {
@@ -1119,9 +1121,11 @@ function extractSegment(inputPath, outputPath, startSec, durationSec) {
             .seekInput(startSec)
             .duration(durationSec)
             .outputOptions([
+                '-vf', 'setpts=PTS-STARTPTS',
+                '-af', 'asetpts=PTS-STARTPTS',
                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
                 '-pix_fmt', 'yuv420p',
-                '-c:a', 'aac', '-b:a', '192k',
+                '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
                 '-threads', '1',
             ])
             .output(outputPath)
@@ -1149,7 +1153,7 @@ function xfadeSegments(pathA, pathB, outputPath, effect, td) {
                 '-map', '[vout]', '-map', '[aout]',
                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
                 '-pix_fmt', 'yuv420p',
-                '-c:a', 'aac', '-b:a', '192k',
+                '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
                 '-threads', '1',
             ])
             .output(outputPath)
