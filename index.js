@@ -1091,15 +1091,23 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
 const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'zoomin', 'fadeblack', 'fadewhite'];
 
 /**
- * Stream-copy a time-bounded segment from a clip.
- * Fast and memory-free — no re-encoding.
+ * Extract a time-bounded segment from a clip and re-encode it.
+ * Re-encoding (rather than stream copy) guarantees clean, zero-based
+ * audio+video timestamps regardless of keyframe positions, which is
+ * required for the concat demuxer to produce correct audio in the
+ * final assembly pass.
  */
 function extractSegment(inputPath, outputPath, startSec, durationSec) {
     return new Promise((resolve, reject) => {
         ffmpeg(inputPath)
             .seekInput(startSec)
             .duration(durationSec)
-            .outputOptions(['-c', 'copy'])
+            .outputOptions([
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k',
+                '-threads', '1',
+            ])
             .output(outputPath)
             .on('end', resolve)
             .on('error', reject)
