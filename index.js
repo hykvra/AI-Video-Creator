@@ -492,46 +492,62 @@ CRITICAL - IMAGE PROMPT RULES:
     console.log("Gemini response text (first 500 chars):", text.substring(0, 500));
     console.log("Response length:", text.length);
 
-    // Function to attempt JSON repair for truncated responses
+    // Function to attempt JSON repair for truncated or slightly malformed responses
     function tryRepairJSON(jsonStr) {
-        let repaired = jsonStr.trim();
+        let text = jsonStr.trim();
+
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+        // ── Pass 1: extract only the root JSON object ──────────────────────────
+        // Walk character-by-character tracking brace depth so we find exactly
+        // where the outermost `{}` closes. This handles:
+        //   • extra `}` / trailing garbage after the object  (the current error)
+        //   • markdown fences or explanatory text before/after the JSON
+        const startIdx = text.indexOf('{');
+        if (startIdx !== -1) {
+            let depth = 0;
+            let inString = false;
+            let escape = false;
+            for (let i = startIdx; i < text.length; i++) {
+                const c = text[i];
+                if (escape)            { escape = false; continue; }
+                if (c === '\\' && inString) { escape = true;  continue; }
+                if (c === '"')         { inString = !inString; continue; }
+                if (inString)          { continue; }
+                if (c === '{')         { depth++; }
+                else if (c === '}')    { depth--; if (depth === 0) { return text.slice(startIdx, i + 1); } }
+            }
+            // Root object was never fully closed — fall through to Pass 2
+            text = text.slice(startIdx);
+        }
+
+        // ── Pass 2: fix truncated / incomplete JSON ─────────────────────────────
+        let repaired = text;
 
         // Remove trailing commas before closing brackets/braces
         repaired = repaired.replace(/,\s*$/, '');
         repaired = repaired.replace(/,\s*]/g, ']');
         repaired = repaired.replace(/,\s*}/g, '}');
 
-        // Count open/close brackets and braces
-        let openBraces = (repaired.match(/{/g) || []).length;
-        let closeBraces = (repaired.match(/}/g) || []).length;
-        let openBrackets = (repaired.match(/\[/g) || []).length;
-        let closeBrackets = (repaired.match(/\]/g) || []).length;
-
-        // If truncated mid-string, close the string
+        // Close an unclosed string literal
         const quoteCount = (repaired.match(/"/g) || []).length;
-        if (quoteCount % 2 !== 0) {
-            repaired += '"';
-        }
+        if (quoteCount % 2 !== 0) repaired += '"';
 
-        // If truncated mid-array element, remove incomplete element
-        // Check if last non-whitespace char indicates incomplete element
-        const trimmed = repaired.trimEnd();
-        const lastChar = trimmed.slice(-1);
+        // Remove a dangling key or value stub at the end
+        const lastChar = repaired.trimEnd().slice(-1);
         if (lastChar === ',' || lastChar === ':') {
-            // Remove the incomplete part after last complete element
             repaired = repaired.replace(/,\s*"[^"]*$/, '');
             repaired = repaired.replace(/:\s*"[^"]*$/, ': ""');
         }
 
-        // Close arrays and objects in correct order
-        while (openBrackets > closeBrackets) {
-            repaired += ']';
-            closeBrackets++;
-        }
-        while (openBraces > closeBraces) {
-            repaired += '}';
-            closeBraces++;
-        }
+        // Add any missing closing brackets/braces
+        let openBraces    = (repaired.match(/{/g) || []).length;
+        let closeBraces   = (repaired.match(/}/g) || []).length;
+        let openBrackets  = (repaired.match(/\[/g) || []).length;
+        let closeBrackets = (repaired.match(/\]/g) || []).length;
+        while (openBrackets > closeBrackets) { repaired += ']'; closeBrackets++; }
+        while (openBraces   > closeBraces)   { repaired += '}'; closeBraces++;   }
 
         return repaired;
     }
