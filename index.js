@@ -1242,17 +1242,55 @@ async function concatenateClipsWithTransition(clipPaths, outputPath, transitions
 }
 
 /**
- * Convert a still image into a 1-second silent video clip (for thumbnail prepend)
+ * Generate a 1-second silent WAV file (44100 Hz, stereo, 16-bit PCM).
+ * This avoids the `lavfi`/`anullsrc` virtual input which is not available
+ * on all FFmpeg builds (e.g. Railway / Docker minimal images).
+ */
+function generateSilentWav(outputPath, durationSec = 1) {
+    const sampleRate = 44100;
+    const numChannels = 2;
+    const bitsPerSample = 16;
+    const numSamples = sampleRate * durationSec;
+    const dataSize = numSamples * numChannels * (bitsPerSample / 8);
+    const buffer = Buffer.alloc(44 + dataSize); // WAV header = 44 bytes
+
+    // RIFF header
+    buffer.write('RIFF', 0);
+    buffer.writeUInt32LE(36 + dataSize, 4);
+    buffer.write('WAVE', 8);
+    // fmt sub-chunk
+    buffer.write('fmt ', 12);
+    buffer.writeUInt32LE(16, 16);            // sub-chunk size
+    buffer.writeUInt16LE(1, 20);             // PCM format
+    buffer.writeUInt16LE(numChannels, 22);
+    buffer.writeUInt32LE(sampleRate, 24);
+    buffer.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28); // byte rate
+    buffer.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);              // block align
+    buffer.writeUInt16LE(bitsPerSample, 34);
+    // data sub-chunk (all zeros = silence)
+    buffer.write('data', 36);
+    buffer.writeUInt32LE(dataSize, 40);
+    // samples remain 0 (silence)
+
+    fs.writeFileSync(outputPath, buffer);
+    return outputPath;
+}
+
+/**
+ * Convert a still image into a 1-second silent video clip (for thumbnail prepend).
+ * Uses a pre-generated silent WAV instead of lavfi anullsrc so it works on all
+ * FFmpeg builds.
  */
 function createThumbnailClip(imagePath, outputPath, width = 720, height = 1280) {
+    const silentWavPath = outputPath.replace(/\.mp4$/, '_silent.wav');
+    generateSilentWav(silentWavPath, 1);
+
     return new Promise((resolve, reject) => {
         ffmpeg()
             .input(imagePath)
             .inputOptions(['-loop', '1', '-t', '1'])
-            // Generate a 1-second silent audio track so the concat demuxer
-            // sees matching streams (video+audio) in every input file.
-            .input('anullsrc=r=44100:cl=stereo')
-            .inputOptions(['-f', 'lavfi', '-t', '1'])
+            // Use the pre-generated silent WAV as the audio track
+            .input(silentWavPath)
             .outputOptions([
                 '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
                 '-c:v', 'libx264',
@@ -1266,8 +1304,15 @@ function createThumbnailClip(imagePath, outputPath, width = 720, height = 1280) 
                 '-r', '30',
             ])
             .output(outputPath)
-            .on('end', () => resolve(outputPath))
-            .on('error', reject)
+            .on('end', () => {
+                // Clean up the temporary silent WAV
+                try { fs.unlinkSync(silentWavPath); } catch (_) {}
+                resolve(outputPath);
+            })
+            .on('error', (err) => {
+                try { fs.unlinkSync(silentWavPath); } catch (_) {}
+                reject(err);
+            })
             .run();
     });
 }
