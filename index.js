@@ -172,17 +172,9 @@ async function addTitleOverlay(imagePath, title, language = 'hindi') {
     fs.writeFileSync(imagePath, canvas.toBuffer('image/png'));
 }
 
-// Write GCP service account credentials from env variable (for Railway/cloud deployments)
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    const jsonStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim();
-    if (jsonStr.startsWith('{')) {
-        const credsPath = '/tmp/gcp-credentials.json';
-        fs.writeFileSync(credsPath, jsonStr);
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
-        console.log('GCP credentials loaded from GOOGLE_APPLICATION_CREDENTIALS_JSON');
-    } else {
-        console.warn('GOOGLE_APPLICATION_CREDENTIALS_JSON is set but does not look like valid JSON — skipping. Paste the full service account JSON object.');
-    }
+// Validate Gemini API key is present
+if (!process.env.GEMINI_API_KEY) {
+    console.warn('WARNING: GEMINI_API_KEY is not set. Gemini/Imagen calls will fail.');
 }
 
 // Initialize Express app
@@ -198,14 +190,12 @@ app.use('/assest', express.static(path.join(__dirname, 'assest')));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Google GenAI via Vertex AI (lazy — created on first use to avoid startup crash)
+// Initialize Google GenAI via API key (lazy — created on first use to avoid startup crash)
 let _googleAI = null;
 function getGoogleAI() {
     if (!_googleAI) {
         _googleAI = new GoogleGenAI({
-            vertexai: true,
-            project: process.env.GCP_PROJECT_ID,
-            location: process.env.GCP_LOCATION || 'asia-south1',
+            apiKey: process.env.GEMINI_API_KEY,
         });
     }
     return _googleAI;
@@ -661,9 +651,9 @@ const GENRE_IMAGE_PROMPT_PREFIX = {
 
 async function generateImage(prompt, outputPath, genre = 'informative') {
     const imagenChain = [
-        { model: 'imagen-4.0-generate-preview-06-06',      label: 'Imagen 4' },
-        { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
-        { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
+        { model: 'imagen-4.0-generate-preview-05-20',      label: 'Imagen 4' },
+        { model: 'imagen-3.0-generate-002',                 label: 'Imagen 3' },
+        { model: 'imagen-3.0-fast-generate-001',            label: 'Imagen 3 Fast' },
     ];
 
     const promptPrefix = GENRE_IMAGE_PROMPT_PREFIX[genre] || GENRE_IMAGE_PROMPT_PREFIX.informative;
