@@ -24,6 +24,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
+import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
+import sharp from 'sharp';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
@@ -38,6 +40,151 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Register bundled Noto fonts for thumbnail text overlay
+const FONTS_DIR = path.join(__dirname, 'assets', 'fonts');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansDevanagari-Bold.ttf'), 'NotoDevanagari');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSansGujarati-Bold.ttf'), 'NotoGujarati');
+GlobalFonts.registerFromPath(path.join(FONTS_DIR, 'NotoSans-Bold.ttf'), 'NotoLatin');
+
+// Maps language name → primary canvas font family (with fallbacks for mixed-script titles)
+const THUMBNAIL_FONT = {
+    hindi:    '"NotoDevanagari", "NotoGujarati", "NotoLatin"',
+    gujarati: '"NotoGujarati", "NotoDevanagari", "NotoLatin"',
+    english:  '"NotoLatin", "NotoDevanagari", "NotoGujarati"',
+};
+
+/**
+ * Remove characters that none of our bundled fonts can render (emoji, symbols,
+ * obscure Unicode blocks) so they never appear as tofu boxes on the thumbnail.
+ */
+function sanitizeTitleForCanvas(text) {
+    // Keep: Devanagari (U+0900–097F), Gujarati (U+0A80–0AFF),
+    //       Latin basic + extended (U+0000–024F), common punctuation &
+    //       general punctuation (U+2000–206F), ASCII printable range.
+    return text.replace(/[^\u0000-\u024F\u0900-\u097F\u0A80-\u0AFF\u2000-\u206F\u20B9|:,.!?()[\]{}\-–—_/\\@#%^&*+=<>~`'"' ]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Strip any AI-generated text-rendering instructions from an image prompt.
+ * AI image models cannot reliably render Devanagari/Gujarati — we overlay
+ * the title programmatically instead.
+ */
+function cleanImagePrompt(prompt) {
+    return prompt
+        // Remove "with text/title/caption/overlay/label ..." clauses
+        .replace(/\bwith\s+(bold\s+|white\s+|large\s+)*(text|title|caption|overlay|heading|label|words?)\b[^,.;]*/gi, '')
+        .replace(/\b(overlay|overlaid|overlaying)\s+(with\s+)?(text|title|caption|words?)\b[^,.;]*/gi, '')
+        .replace(/\b(text|title|caption)\s+(overlay|overlaid)\b[^,.;]*/gi, '')
+        // Remove quoted strings (usually the literal text to render)
+        .replace(/["""][^"""]{1,120}["""]/g, '')
+        .replace(/[''][^'']{1,120}['']/g, '')
+        // Remove "saying ..." / "reading ..." constructs
+        .replace(/\b(saying|reading|displaying|showing|written)\s+["']?[^,.\n]{0,80}["']?/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+/**
+ * Composites the video title as properly-rendered text onto a thumbnail image.
+ * Uses @napi-rs/canvas with bundled Noto fonts so Devanagari/Gujarati script
+ * is rendered correctly instead of being garbled by the AI image model.
+ *
+ * @param {string} imagePath  - Path to the PNG thumbnail (modified in-place)
+ * @param {string} title      - Title text to overlay (any supported script)
+ * @param {string} language   - 'hindi' | 'gujarati' | 'english'
+ */
+
+// Target thumbnail dimensions — portrait 720p (9:16)
+const THUMB_W = 720;
+const THUMB_H = 1280;
+
+/**
+ * Resize + center-crop an image to portrait 720×1280.
+ * Works regardless of whether the source is square (Gemini) or already 9:16 (Imagen).
+ */
+async function resizeToPortrait(imagePath) {
+    const buf = await sharp(imagePath)
+        .resize(THUMB_W, THUMB_H, { fit: 'cover', position: 'centre' })
+        .png()
+        .toBuffer();
+    fs.writeFileSync(imagePath, buf);
+}
+
+async function addTitleOverlay(imagePath, title, language = 'hindi') {
+    const fontStack = THUMBNAIL_FONT[language] || THUMBNAIL_FONT.hindi;
+    const cleanTitle = sanitizeTitleForCanvas(title);
+
+    const img = await loadImage(imagePath);
+    const { width, height } = img;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Draw the base image
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const fontSize  = Math.round(width * 0.072);
+    const padding   = Math.round(width * 0.055);
+    const maxWidth  = width - padding * 2;
+    const lineHeight = fontSize * 1.35;
+
+    ctx.font = `bold ${fontSize}px ${fontStack}`;
+
+    // Word-wrap the sanitised title
+    const words = cleanTitle.split(' ');
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const test = current ? `${current} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && current) {
+            lines.push(current);
+            current = word;
+        } else {
+            current = test;
+        }
+    }
+    if (current) lines.push(current);
+
+    const blockHeight = padding * 2 + lines.length * lineHeight;
+
+    // Dark gradient scrim at the top so text is always legible
+    const grad = ctx.createLinearGradient(0, 0, 0, blockHeight + fontSize);
+    grad.addColorStop(0,   'rgba(0,0,0,0.80)');
+    grad.addColorStop(0.7, 'rgba(0,0,0,0.55)');
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, blockHeight + fontSize);
+
+    // White text with dark shadow
+    ctx.font = `bold ${fontSize}px ${fontStack}`;
+    ctx.fillStyle  = '#FFFFFF';
+    ctx.shadowColor   = 'rgba(0,0,0,0.95)';
+    ctx.shadowBlur    = Math.round(fontSize * 0.25);
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+    ctx.textBaseline  = 'top';
+    ctx.textAlign     = 'left';
+
+    lines.forEach((line, i) => {
+        ctx.fillText(line, padding, padding + i * lineHeight);
+    });
+
+    fs.writeFileSync(imagePath, canvas.toBuffer('image/png'));
+}
+
+// Write GCP service account credentials from env variable (for Railway/cloud deployments)
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    const jsonStr = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim();
+    if (jsonStr.startsWith('{')) {
+        const credsPath = '/tmp/gcp-credentials.json';
+        fs.writeFileSync(credsPath, jsonStr);
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+        console.log('GCP credentials loaded from GOOGLE_APPLICATION_CREDENTIALS_JSON');
+    } else {
+        console.warn('GOOGLE_APPLICATION_CREDENTIALS_JSON is set but does not look like valid JSON — skipping. Paste the full service account JSON object.');
+    }
+}
+
 // Initialize Express app
 const app = express();
 app.use(express.json());
@@ -51,16 +198,22 @@ app.use('/assest', express.static(path.join(__dirname, 'assest')));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Google Generative AI (Gemini API)
-// Added httpOptions to send a Referer header, satisfying API key referrer restrictions
-const googleAI = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    httpOptions: {
-        headers: {
-            'Referer': process.env.GEMINI_REFERER || 'https://aivideo.hykvra.in/'
-        }
+// Initialize Google GenAI via Vertex AI (lazy — created on first use to avoid startup crash)
+let _googleAI = null;
+function getGoogleAI() {
+    if (!_googleAI) {
+        _googleAI = new GoogleGenAI({
+            vertexai: true,
+            project: process.env.GCP_PROJECT_ID,
+            location: process.env.GCP_LOCATION || 'asia-south1',
+        });
     }
-});
+    return _googleAI;
+}
+
+// Circuit breaker: if Gemini hits 429 twice consecutively, skip it for 3 minutes
+let geminiRateLimitedUntil = 0;
+let geminiConsecutive429s = 0;
 
 // Initialize Cartesia client (optional - won't crash if API key missing)
 let cartesia = null;
@@ -100,6 +253,19 @@ const upload = multer({ storage: storageConfig });
 
 // Store active SSE connections
 const activeConnections = new Map();
+
+// In-memory registry of generated videos — ephemeral, cleared on page close or after TTL
+const videoRegistry = new Map(); // sessionId -> { videoPath, thumbnailPaths, timer }
+const VIDEO_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function cleanupSession(sessionId) {
+    const entry = videoRegistry.get(sessionId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    cleanupTempFiles([entry.videoPath, ...entry.thumbnailPaths]);
+    videoRegistry.delete(sessionId);
+    console.log(`[Cleanup] Session ${sessionId} removed`);
+}
 
 /**
  * Send progress update to SSE client via Server-Sent Events
@@ -236,7 +402,7 @@ async function generateScript(topic, targetDuration = 60, genre = 'informative',
             console.log(`Trying script generation with model: ${modelName}`);
             try {
                 // New SDK usage
-                const response = await googleAI.models.generateContent({
+                const response = await getGoogleAI().models.generateContent({
                     model: modelName,
                     contents: promptText,
                     config: { responseMimeType: "application/json" }
@@ -299,12 +465,11 @@ For each scene:
 1. image_prompts: Array of 3 detailed English image prompts (1 for final scene). Use ${genreConfig.imageStyle}.
 2. ${langConfig.fieldName}: ${langConfig.name} MONOLOGUE narration (~${avgSceneDuration} seconds when spoken). Write expressively. Single male narrator voice!
 
-${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STYLE: Write like a male stand-up comedian telling jokes and funny observations in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
-${genre === 'storytelling' ? `STORYTELLING STYLE: Narrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
-${genre === 'motivational' ? `MOTIVATIONAL STYLE: Use powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
-
-
-${genre === 'didyouknow' ? `DID YOU KNOW STYLE: Structuring facts correctly with Hook, Reveal, and CTA.` : ''}
+${genre === 'informative' ? `INFORMATIVE STRUCTURE: Open with a compelling hook question that sparks curiosity. Then deliver 3 surprising key facts or insights with specific details (numbers, names, real examples). Close with a clear practical takeaway the viewer can use immediately. Each fact should feel like a "wow, I didn't know that" moment.` : ''}
+${genre === 'comedy' ? genreConfig.intensity + `\n\nCOMEDY STRUCTURE: Use classic stand-up structure — start with a relatable setup (something everyone experiences), build with escalating observations that create tension, then land a punchline twist that reframes everything. Each scene should feel like a new joke beat. End with a callback that ties back to the opener.\n\nCOMEDY PHRASES: Write like a male stand-up comedian in ${langConfig.name}. Use phrases like ${langConfig.samplePhrases.comedy}. Make observations about daily life, relationships, or the topic in a humorous way.` : ''}
+${genre === 'storytelling' ? `STORYTELLING STRUCTURE: Follow 3-act cinematic structure:\n- Act 1 (first scene): Introduce the character/setting vividly and the inciting incident\n- Act 2 (middle scenes): Build tension, conflict, or obstacle with emotional stakes\n- Act 3 (final scenes): Deliver the resolution, twist, or emotional payoff\nNarrate like a male storyteller in ${langConfig.name}. Use ${langConfig.samplePhrases.storytelling}. Create vivid descriptions and emotional moments.` : ''}
+${genre === 'motivational' ? `MOTIVATIONAL STRUCTURE: Follow the transformation arc:\n- Pain point (open with a real struggle the viewer faces — make them feel understood)\n- Turning point (the key insight or mindset shift that changes everything)\n- New reality (paint a vivid picture of what life looks like after the transformation)\n- Call to action (one specific, concrete action the viewer can take today)\nUse powerful, uplifting language in ${langConfig.name}. Include phrases like ${langConfig.samplePhrases.motivational}.` : ''}
+${genre === 'didyouknow' ? `DID YOU KNOW STRUCTURE — follow this EXACTLY. You are given one topic/fact — craft the hook question yourself from it:\n- Scene 1 (HOOK): Open with a shocking "શું તમે જાણો છો..." style question you invent from the topic. Build mystery and make the viewer NEED to know the answer. Do NOT reveal the fact yet.\n- Scene 2 (REVEAL): Deliver the surprising fact with specific details, numbers, names. Use a pivot like "Actually..." or "The truth is...". Explain why it matters.\n- Scene 3 (CTA): Connect the fact to the viewer's life with a takeaway. End with subscribe appeal.` : ''}
 
 Make the content highly engaging. Use Cartesia Sonic-3 model for high-quality multilingual narration.
 
@@ -314,10 +479,11 @@ VIDEO TITLE (SLUG FORMAT): URL-friendly English title.
 IMPORTANT: Return a JSON object with:
 1. "video_title": A slug-format English title.
 2. "scenes": Array of exactly ${numScenes} scenes, each with: scene_number, image_prompts (3 for scenes 1 to ${numScenes - 1}, EXACTLY 1 for final scene), and ${langConfig.fieldName}.
-3. "thumbnail_prompts": Array of 2 to 3 detailed, high-CTR thumbnail image concepts.
+3. "youtube_metadata": { "title", "description", "tags", "thumbnail_prompts" }
 
 CRITICAL - IMAGE PROMPT RULES:
 - Literal visual representation. Photorealistic.
+- Any text, signs, labels, or typography shown in the image must be in English only. Never use Gujarati, Hindi (Devanagari), Arabic, or any non-Latin script in image prompts or in the generated image content.
 - Keep the JSON response complete and valid. Do not truncate.`;
 
     const result = await generateWithRetry(prompt);
@@ -327,46 +493,62 @@ CRITICAL - IMAGE PROMPT RULES:
     console.log("Gemini response text (first 500 chars):", text.substring(0, 500));
     console.log("Response length:", text.length);
 
-    // Function to attempt JSON repair for truncated responses
+    // Function to attempt JSON repair for truncated or slightly malformed responses
     function tryRepairJSON(jsonStr) {
-        let repaired = jsonStr.trim();
+        let text = jsonStr.trim();
+
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+        // ── Pass 1: extract only the root JSON object ──────────────────────────
+        // Walk character-by-character tracking brace depth so we find exactly
+        // where the outermost `{}` closes. This handles:
+        //   • extra `}` / trailing garbage after the object  (the current error)
+        //   • markdown fences or explanatory text before/after the JSON
+        const startIdx = text.indexOf('{');
+        if (startIdx !== -1) {
+            let depth = 0;
+            let inString = false;
+            let escape = false;
+            for (let i = startIdx; i < text.length; i++) {
+                const c = text[i];
+                if (escape)            { escape = false; continue; }
+                if (c === '\\' && inString) { escape = true;  continue; }
+                if (c === '"')         { inString = !inString; continue; }
+                if (inString)          { continue; }
+                if (c === '{')         { depth++; }
+                else if (c === '}')    { depth--; if (depth === 0) { return text.slice(startIdx, i + 1); } }
+            }
+            // Root object was never fully closed — fall through to Pass 2
+            text = text.slice(startIdx);
+        }
+
+        // ── Pass 2: fix truncated / incomplete JSON ─────────────────────────────
+        let repaired = text;
 
         // Remove trailing commas before closing brackets/braces
         repaired = repaired.replace(/,\s*$/, '');
         repaired = repaired.replace(/,\s*]/g, ']');
         repaired = repaired.replace(/,\s*}/g, '}');
 
-        // Count open/close brackets and braces
-        let openBraces = (repaired.match(/{/g) || []).length;
-        let closeBraces = (repaired.match(/}/g) || []).length;
-        let openBrackets = (repaired.match(/\[/g) || []).length;
-        let closeBrackets = (repaired.match(/\]/g) || []).length;
-
-        // If truncated mid-string, close the string
+        // Close an unclosed string literal
         const quoteCount = (repaired.match(/"/g) || []).length;
-        if (quoteCount % 2 !== 0) {
-            repaired += '"';
-        }
+        if (quoteCount % 2 !== 0) repaired += '"';
 
-        // If truncated mid-array element, remove incomplete element
-        // Check if last non-whitespace char indicates incomplete element
-        const trimmed = repaired.trimEnd();
-        const lastChar = trimmed.slice(-1);
+        // Remove a dangling key or value stub at the end
+        const lastChar = repaired.trimEnd().slice(-1);
         if (lastChar === ',' || lastChar === ':') {
-            // Remove the incomplete part after last complete element
             repaired = repaired.replace(/,\s*"[^"]*$/, '');
             repaired = repaired.replace(/:\s*"[^"]*$/, ': ""');
         }
 
-        // Close arrays and objects in correct order
-        while (openBrackets > closeBrackets) {
-            repaired += ']';
-            closeBrackets++;
-        }
-        while (openBraces > closeBraces) {
-            repaired += '}';
-            closeBraces++;
-        }
+        // Add any missing closing brackets/braces
+        let openBraces    = (repaired.match(/{/g) || []).length;
+        let closeBraces   = (repaired.match(/}/g) || []).length;
+        let openBrackets  = (repaired.match(/\[/g) || []).length;
+        let closeBrackets = (repaired.match(/\]/g) || []).length;
+        while (openBrackets > closeBrackets) { repaired += ']'; closeBrackets++; }
+        while (openBraces   > closeBraces)   { repaired += '}'; closeBraces++;   }
 
         return repaired;
     }
@@ -387,8 +569,8 @@ CRITICAL - IMAGE PROMPT RULES:
         const videoTitle = jsonResponse.video_title || 'untitled-video';
         console.log('Video Title:', videoTitle);
         console.log('DEBUG: Full JSON Keys:', Object.keys(jsonResponse));
-        console.log('DEBUG: thumbnail_prompts present?:', !!jsonResponse.thumbnail_prompts);
-        console.log('DEBUG: thumbnail_prompts content:', JSON.stringify(jsonResponse.thumbnail_prompts, null, 2));
+        console.log('DEBUG: youtube_metadata present?:', !!jsonResponse.youtube_metadata);
+        console.log('DEBUG: YouTube Metadata content:', JSON.stringify(jsonResponse.youtube_metadata, null, 2));
 
         // Handle both { scenes: [...] } and direct array response
         let scenes;
@@ -402,7 +584,7 @@ CRITICAL - IMAGE PROMPT RULES:
         }
 
         // Return both title and scenes
-        return { videoTitle, scenes, thumbnail_prompts: jsonResponse.thumbnail_prompts };
+        return { videoTitle, scenes, youtube_metadata: jsonResponse.youtube_metadata };
     } catch (parseError) {
         console.error("JSON parse error:", parseError.message);
         console.error("Raw response:", text.substring(0, 1000));
@@ -467,57 +649,94 @@ function createPlaceholderImage(outputPath) {
  *   3
  * );
  */
-async function generateImage(prompt, outputPath, retries = 3) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
+const IMAGE_TEXT_RULE = `Any text, labels, signs, captions, or typography visible in the image MUST be in English only. Do NOT use any non-English script, Devanagari, Gujarati, Arabic, or any other non-Latin writing system. No decorative non-English fonts.`;
+
+const GENRE_IMAGE_PROMPT_PREFIX = {
+    informative:  `Clean, professional, editorial-quality image. Sharp details, neutral lighting, infographic-friendly composition. ${IMAGE_TEXT_RULE}`,
+    comedy:       `Bright, colorful, exaggerated cartoon-style illustration. Bold outlines, cheerful palette, expressive characters, absurd humor. ${IMAGE_TEXT_RULE}`,
+    storytelling: `Cinematic, dramatic, film-quality scene. Moody atmospheric lighting, rich shadows, deep color grading, emotional depth. ${IMAGE_TEXT_RULE}`,
+    motivational: `Epic, powerful, uplifting imagery. Golden-hour sunlight, bold warm tones, inspiring subject, heroic framing. ${IMAGE_TEXT_RULE}`,
+    didyouknow:   `Bold, eye-catching, high-contrast visual. Dramatic colors, surprise element, question-mark energy, factual subject rendered vividly. ${IMAGE_TEXT_RULE}`
+};
+
+async function generateImage(prompt, outputPath, genre = 'informative') {
+    const imagenChain = [
+        { model: 'imagen-4.0-generate-preview-06-06',      label: 'Imagen 4' },
+        { model: 'imagen-4.0-fast-generate-preview-06-06', label: 'Imagen 4 Fast' },
+        { model: 'imagen-3.0-fast-generate-001',           label: 'Imagen 3 Fast' },
+    ];
+
+    const promptPrefix = GENRE_IMAGE_PROMPT_PREFIX[genre] || GENRE_IMAGE_PROMPT_PREFIX.informative;
+    const fullPrompt = `${promptPrefix} ${prompt}`;
+
+    // Primary: try Imagen chain (production models, higher quota)
+    for (const model of imagenChain) {
         try {
-            console.log(`Gemini Image attempt ${attempt}/${retries}...`);
+            return await generateImageImagen(fullPrompt, outputPath, model.model, model.label);
+        } catch (err) {
+            const isRateLimit = err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED'));
+            console.error(`${model.label} failed${isRateLimit ? ' (rate-limited)' : ''}:`, err.message);
+            // On rate limit, stop trying Imagen variants — they share the same quota pool
+            if (isRateLimit) break;
+        }
+    }
 
-            const response = await googleAI.models.generateContent({
-                model: "gemini-2.5-flash-image",
-                contents: `High quality, detailed, professional image in 9:16 vertical aspect ratio for mobile viewing. Vibrant colors, engaging composition. ${prompt}`,
+    // Bonus: try Gemini Flash Image if Imagen failed (not rate-limited)
+    if (Date.now() >= geminiRateLimitedUntil) {
+        try {
+            console.log('Imagen failed. Trying Gemini Flash Image as bonus...');
+            const response = await getGoogleAI().models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: fullPrompt,
+                generationConfig: { responseModalities: ['IMAGE'] },
             });
-
-            // Parse response for image data
-            let imageSaved = false;
-
-            if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
+            if (response.candidates?.[0]?.content?.parts) {
                 for (const part of response.candidates[0].content.parts) {
                     if (part.inlineData) {
-                        const imageData = part.inlineData.data;
-                        const buffer = Buffer.from(imageData, "base64");
-                        fs.writeFileSync(outputPath, buffer);
-                        console.log(`✓ Image saved: ${outputPath}`);
-                        imageSaved = true;
+                        fs.writeFileSync(outputPath, Buffer.from(part.inlineData.data, 'base64'));
+                        console.log(`✓ Gemini image saved: ${outputPath}`);
+                        geminiConsecutive429s = 0;
                         return outputPath;
                     }
                 }
             }
-
-            if (!imageSaved) {
-                throw new Error('No image inlineData in Gemini response');
+        } catch (err) {
+            const isRateLimit = err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED'));
+            console.error(`Gemini Image failed${isRateLimit ? ' (rate-limited)' : ''}:`, err.message);
+            if (isRateLimit) {
+                geminiConsecutive429s++;
+                geminiRateLimitedUntil = Date.now() + 3 * 60 * 1000;
             }
-
-        } catch (error) {
-            console.error(`Gemini Image attempt ${attempt} failed:`, error.message);
-
-            if (error.response) {
-                // Log fuller error if available
-                console.error('Failure details:', JSON.stringify(error.response, null, 2));
-            }
-
-            if (attempt < retries) {
-                const waitTime = attempt * 2000;
-                console.log(`Retrying in ${waitTime / 1000} seconds...`);
-                await new Promise(r => setTimeout(r, waitTime));
-                continue;
-            }
-
-            // Final fallback: placeholder image
-            console.log('Using placeholder image...');
-            await createPlaceholderImage(outputPath);
-            return outputPath;
         }
     }
+
+    console.log('All image models failed. Using placeholder...');
+    await createPlaceholderImage(outputPath);
+    return outputPath;
+}
+
+/**
+ * Generate image using a specified Imagen model
+ */
+async function generateImageImagen(prompt, outputPath, model, label) {
+    console.log(`Generating image with ${label} (${model})...`);
+    const response = await getGoogleAI().models.generateImages({
+        model,
+        prompt,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: '9:16',
+        },
+    });
+
+    if (response.generatedImages && response.generatedImages[0] && response.generatedImages[0].image && response.generatedImages[0].image.imageBytes) {
+        const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, 'base64');
+        fs.writeFileSync(outputPath, buffer);
+        console.log(`✓ ${label} image saved: ${outputPath}`);
+        return outputPath;
+    }
+
+    throw new Error(`No image data in ${label} response`);
 }
 
 /**
@@ -540,10 +759,20 @@ async function generateImage(prompt, outputPath, retries = 3) {
  *   3
  * );
  */
-async function generateAudio(text, outputPath, retries = 3) {
+async function generateAudio(text, outputPath, genre = 'informative', retries = 3) {
+    // Genre-specific base speaking speed (0.6–2.0 range for Cartesia sonic-3)
+    const GENRE_VOICE_SPEED = {
+        informative:  1.0,
+        comedy:       1.1,
+        storytelling: 0.9,
+        motivational: 1.0,
+        didyouknow:   1.0
+    };
+    const speed = GENRE_VOICE_SPEED[genre] || 1.0;
+
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            console.log(`Cartesia TTS attempt ${attempt}/${retries}...`);
+            console.log(`Cartesia TTS attempt ${attempt}/${retries} (genre: ${genre}, speed: ${speed})...`);
             console.log(`Text to synthesize: "${text}"`);
 
             // Check if Cartesia is initialized
@@ -561,6 +790,7 @@ async function generateAudio(text, outputPath, retries = 3) {
                     id: voiceId,
                 },
                 transcript: text,
+                ...(speed !== 1.0 && { generation_config: { speed } }),
                 outputFormat: {
                     container: "wav",
                     encoding: "pcm_f32le",
@@ -639,7 +869,7 @@ function getAudioDuration(audioPath) {
  * @example
  * await addSilenceToAudio('/tmp/narration.wav', 2.0); // Adds 2 seconds of silence
  */
-function addSilenceToAudio(inputPath, durationSeconds) {
+function addSilenceToAudio(inputPath, durationSeconds, tempoVariation = 1.0) {
     return new Promise((resolve, reject) => {
         const outputPath = inputPath.replace('.mp3', '_delayed.mp3');
 
@@ -647,13 +877,18 @@ function addSilenceToAudio(inputPath, durationSeconds) {
         // format: delay_ms|delay_ms (for stereo)
         const delayMs = durationSeconds * 1000;
 
+        // Chain adelay + optional atempo for subtle speed micro-variation
+        const filters = (tempoVariation !== 1.0)
+            ? [`adelay=${delayMs}|${delayMs}`, `atempo=${tempoVariation.toFixed(4)}`]
+            : [`adelay=${delayMs}|${delayMs}`];
+
         ffmpeg(inputPath)
-            .audioFilters(`adelay=${delayMs}|${delayMs}`)
+            .audioFilters(filters)
             .save(outputPath)
             .on('end', () => {
                 // Replace original file with delayed version
                 fs.renameSync(outputPath, inputPath);
-                console.log(`Added ${durationSeconds}s silence to: ${inputPath}`);
+                console.log(`Added ${durationSeconds}s silence (tempo: ${tempoVariation.toFixed(4)}x) to: ${inputPath}`);
                 resolve(inputPath);
             })
             .on('error', (err) => {
@@ -663,9 +898,34 @@ function addSilenceToAudio(inputPath, durationSeconds) {
     });
 }
 
+// Genre-specific animation profiles for Ken Burns effect
+const GENRE_ANIMATION_PROFILES = {
+    informative:  { zoomRange: [1.0, 1.07], panPool: ['tl-br', 'tr-bl', 'center-v'],          zoomVariance: 0.02 },
+    comedy:       { zoomRange: [1.0, 1.20], panPool: ['tl-br', 'tr-bl', 'bl-tr', 'center-v'], zoomVariance: 0.05 },
+    storytelling: { zoomRange: [1.0, 1.12], panPool: ['tl-br', 'bl-tr', 'center-v'],          zoomVariance: 0.03 },
+    motivational: { zoomRange: [1.05, 1.18], panPool: ['bl-tr', 'center-v', 'tl-br'],         zoomVariance: 0.03 },
+    didyouknow:   { zoomRange: [1.0, 1.15], panPool: ['tl-br', 'tr-bl', 'bl-tr', 'center-v'], zoomVariance: 0.04 }
+};
+
+const PAN_MAP = {
+    'tl-br':   { startX: '0',         startY: '0',         endX: '(iw-ow)',   endY: '(ih-oh)'   },
+    'tr-bl':   { startX: '(iw-ow)',   startY: '0',         endX: '0',         endY: '(ih-oh)'   },
+    'bl-tr':   { startX: '0',         startY: '(ih-oh)',   endX: '(iw-ow)',   endY: '0'         },
+    'center-v':{ startX: '(iw-ow)/2', startY: '0',         endX: '(iw-ow)/2', endY: '(ih-oh)'  }
+};
+
+// Genre-specific color grading filters
+const GENRE_COLOR_FILTERS = {
+    informative:  'eq=brightness=0.02:contrast=1.05:saturation=1.0',
+    comedy:       'eq=brightness=0.05:contrast=1.1:saturation=1.5,hue=s=1.3',
+    storytelling: 'eq=brightness=-0.04:contrast=1.2:saturation=0.8',
+    motivational: 'colorbalance=rs=0.08:gs=0.04:bs=-0.03,eq=brightness=0.04:contrast=1.1:saturation=1.2',
+    didyouknow:   'eq=brightness=-0.02:contrast=1.3:saturation=1.1'
+};
+
 /**
  * Create video clip from image and audio with Ken Burns effect
- * 
+ *
  * Generates a video clip by combining a static image with audio narration.
  * Applies Ken Burns effect (smooth zoom and pan animation) for visual interest.
  * Alternates between zoom-in and zoom-out based on scene index.
@@ -687,32 +947,31 @@ function addSilenceToAudio(inputPath, durationSeconds) {
  *   0
  * );
  */
-function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex) {
+function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex, genre = 'informative') {
     return new Promise((resolve, reject) => {
-        const videoDuration = (parseFloat(duration) + 0.5).toFixed(2);
+        const videoDuration = parseFloat(duration).toFixed(3);
         const fps = 24;  // Reduced from 30 for faster encoding
         const totalFrames = Math.ceil(videoDuration * fps);
 
-        // Ken Burns effect parameters - alternate between zoom-in and zoom-out
-        // Start with slight zoom out (1.15) and zoom in to 1.0, or vice versa
-        const isZoomIn = sceneIndex % 2 === 0;
-        const startZoom = isZoomIn ? 1.0 : 1.15;
-        const endZoom = isZoomIn ? 1.15 : 1.0;
+        // Genre-specific Ken Burns effect with randomized direction and variance
+        const profile = GENRE_ANIMATION_PROFILES[genre] || GENRE_ANIMATION_PROFILES.informative;
+        const isZoomIn = Math.random() > 0.5;
+        const baseStart = profile.zoomRange[0];
+        const baseEnd = profile.zoomRange[1];
+        const variance = (Math.random() - 0.5) * profile.zoomVariance;
+        const startZoom = isZoomIn ? baseStart : Math.max(baseStart, baseEnd + variance);
+        const endZoom = isZoomIn ? Math.max(baseStart, baseEnd + variance) : baseStart;
 
-        // Random pan direction
-        const panDirections = [
-            { startX: '0', startY: '0', endX: '(iw-ow)', endY: '(ih-oh)' },  // top-left to bottom-right
-            { startX: '(iw-ow)', startY: '0', endX: '0', endY: '(ih-oh)' },  // top-right to bottom-left
-            { startX: '0', startY: '(ih-oh)', endX: '(iw-ow)', endY: '0' },  // bottom-left to top-right
-            { startX: '(iw-ow)/2', startY: '0', endX: '(iw-ow)/2', endY: '(ih-oh)' },  // top to bottom center
-        ];
-        const pan = panDirections[sceneIndex % panDirections.length];
+        // Random pan direction from genre's pool
+        const panKey = profile.panPool[Math.floor(Math.random() * profile.panPool.length)];
+        const pan = PAN_MAP[panKey];
 
-        // Ken Burns filter: scale up image, then use zoompan for smooth zoom/pan
-        // Reduced scale from 8000 to 3000 for much faster processing
+        // Ken Burns + genre color grading filter
+        const colorFilter = GENRE_COLOR_FILTERS[genre] || GENRE_COLOR_FILTERS.informative;
         const kenBurnsFilter = [
             `scale=3000:-1`,
             `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='${pan.startX}+(${pan.endX}-(${pan.startX}))*(on/${totalFrames})':y='${pan.startY}+(${pan.endY}-(${pan.startY}))*(on/${totalFrames})':d=${totalFrames}:s=720x1280:fps=${fps}`,
+            colorFilter,
             `format=yuv420p`
         ].join(',');
 
@@ -765,30 +1024,32 @@ function createVideoClip(imagePath, audioPath, outputPath, duration, sceneIndex)
  *   1
  * );
  */
-function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, startTime, duration, clipIndex) {
+function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, startTime, duration, clipIndex, genre = 'informative') {
     return new Promise((resolve, reject) => {
         // Use exact duration without buffer to prevent overlap
         const exactDuration = parseFloat(duration).toFixed(3);
         const fps = 24;  // Reduced from 30 for faster encoding
         const totalFrames = Math.ceil(duration * fps);
 
-        // Ken Burns effect - alternate directions
-        const isZoomIn = clipIndex % 2 === 0;
-        const startZoom = isZoomIn ? 1.0 : 1.10;
-        const endZoom = isZoomIn ? 1.10 : 1.0;
+        // Genre-specific Ken Burns effect with randomized direction and variance
+        const profile = GENRE_ANIMATION_PROFILES[genre] || GENRE_ANIMATION_PROFILES.informative;
+        const isZoomIn = Math.random() > 0.5;
+        const baseStart = profile.zoomRange[0];
+        const baseEnd = profile.zoomRange[1];
+        const variance = (Math.random() - 0.5) * profile.zoomVariance;
+        const startZoom = isZoomIn ? baseStart : Math.max(baseStart, baseEnd + variance);
+        const endZoom = isZoomIn ? Math.max(baseStart, baseEnd + variance) : baseStart;
 
-        const panDirections = [
-            { startX: '0', startY: '0', endX: '(iw-ow)', endY: '(ih-oh)' },
-            { startX: '(iw-ow)', startY: '0', endX: '0', endY: '(ih-oh)' },
-            { startX: '0', startY: '(ih-oh)', endX: '(iw-ow)', endY: '0' },
-            { startX: '(iw-ow)/2', startY: '0', endX: '(iw-ow)/2', endY: '(ih-oh)' },
-        ];
-        const pan = panDirections[clipIndex % panDirections.length];
+        // Random pan direction from genre's pool
+        const panKey = profile.panPool[Math.floor(Math.random() * profile.panPool.length)];
+        const pan = PAN_MAP[panKey];
 
-        // Reduced scale from 8000 to 3000 for much faster processing
+        // Ken Burns + genre color grading filter
+        const colorFilter = GENRE_COLOR_FILTERS[genre] || GENRE_COLOR_FILTERS.informative;
         const kenBurnsFilter = [
             `scale=3000:-1`,
             `zoompan=z='${startZoom}+(${endZoom}-${startZoom})*(on/${totalFrames})':x='${pan.startX}+(${pan.endX}-(${pan.startX}))*(on/${totalFrames})':y='${pan.startY}+(${pan.endY}-(${pan.startY}))*(on/${totalFrames})':d=${totalFrames}:s=720x1280:fps=${fps}`,
+            colorFilter,
             `format=yuv420p`
         ].join(',');
 
@@ -842,6 +1103,175 @@ function createVideoClipWithAudioSegment(imagePath, audioPath, outputPath, start
  *   '/tmp/final_video.mp4'
  * );
  */
+/**
+ * Available xfade transition effects for scene-to-scene transitions.
+ * 'cut' means a hard cut (no transition, uses concat demuxer).
+ */
+const VALID_TRANSITIONS = ['cut', 'fade', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'zoomin', 'fadeblack', 'fadewhite'];
+
+/**
+ * Extract a time-bounded segment from a clip and re-encode it.
+ * Re-encoding guarantees clean timestamps. setpts/asetpts resets both
+ * video and audio timestamps to zero — critical for the concat demuxer
+ * to produce continuous, in-sync audio across all parts.
+ */
+function extractSegment(inputPath, outputPath, startSec, durationSec) {
+    return new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+            .seekInput(startSec)
+            .duration(durationSec)
+            .outputOptions([
+                '-vf', 'setpts=PTS-STARTPTS',
+                '-af', 'asetpts=PTS-STARTPTS',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+                '-threads', '1',
+            ])
+            .output(outputPath)
+            .on('end', resolve)
+            .on('error', reject)
+            .run();
+    });
+}
+
+/**
+ * Apply xfade between two pre-extracted short segments (each ~td seconds).
+ * This is the only memory-intensive step, but it only ever processes 2×td
+ * seconds of video, keeping peak memory usage constant regardless of clip count.
+ */
+function xfadeSegments(pathA, pathB, outputPath, effect, td) {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(pathA)
+            .input(pathB)
+            .complexFilter([
+                `[0:v][1:v]xfade=transition=${effect}:duration=${td}:offset=0[vout]`,
+                `[0:a][1:a]acrossfade=d=${td}[aout]`
+            ])
+            .outputOptions([
+                '-map', '[vout]', '-map', '[aout]',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+                '-threads', '1',
+            ])
+            .output(outputPath)
+            .on('end', resolve)
+            .on('error', reject)
+            .run();
+    });
+}
+
+/**
+ * Concatenate video clips with a transition effect between each pair.
+ *
+ * Strategy: stream-copy the body of each clip untouched, and only run xfade
+ * on the tiny tail+head segments at each boundary (~2×td seconds total).
+ * This keeps peak ffmpeg memory constant regardless of clip count or length.
+ *
+ * @param {string[]} clipPaths - Ordered array of clip file paths
+ * @param {string} outputPath - Output file path
+ * @param {string|string[]} transitions - xfade effect name(s); one is picked randomly per boundary
+ * @param {number} transitionDuration - Overlap duration in seconds (default 0.3)
+ */
+async function concatenateClipsWithTransition(clipPaths, outputPath, transitions = ['fade'], transitionDuration = 0.3) {
+    if (clipPaths.length === 0) throw new Error('No clips to concatenate');
+    if (clipPaths.length === 1) {
+        fs.copyFileSync(clipPaths[0], outputPath);
+        return outputPath;
+    }
+
+    const pool = (Array.isArray(transitions) ? transitions : [transitions]).filter(t => t !== 'cut');
+    if (pool.length === 0) pool.push('fade');
+
+    const td = transitionDuration;
+    const tempDir = path.dirname(outputPath);
+    const tempFiles = [];
+    const parts = [];
+
+    try {
+        const durations = await Promise.all(clipPaths.map(p => getAudioDuration(p)));
+
+        for (let i = 0; i < clipPaths.length; i++) {
+            const dur = durations[i];
+            const isFirst = i === 0;
+            const isLast = i === clipPaths.length - 1;
+
+            // Body: the part of this clip outside the transition zones (stream copy)
+            const bodyStart = isFirst ? 0 : td;
+            const bodyEnd = isLast ? dur : Math.max(bodyStart + 0.1, dur - td);
+
+            if (bodyEnd - bodyStart >= 0.1) {
+                const bodyPath = path.join(tempDir, `tr_body_${i}_${Date.now()}.mp4`);
+                tempFiles.push(bodyPath);
+                await extractSegment(clipPaths[i], bodyPath, bodyStart, bodyEnd - bodyStart);
+                parts.push(bodyPath);
+            }
+
+            // Transition segment between clip i and clip i+1
+            if (!isLast) {
+                const effect = pool[Math.floor(Math.random() * pool.length)];
+                const tailPath = path.join(tempDir, `tr_tail_${i}_${Date.now()}.mp4`);
+                const headPath = path.join(tempDir, `tr_head_${i}_${Date.now()}.mp4`);
+                const transPath = path.join(tempDir, `tr_xfade_${i}_${Date.now()}.mp4`);
+                tempFiles.push(tailPath, headPath, transPath);
+
+                // Only ~td seconds extracted from each side — tiny memory footprint for xfade
+                await extractSegment(clipPaths[i], tailPath, Math.max(0, dur - td), Math.min(td, dur));
+                await extractSegment(clipPaths[i + 1], headPath, 0, Math.min(td, durations[i + 1]));
+                await xfadeSegments(tailPath, headPath, transPath, effect, td);
+                parts.push(transPath);
+            }
+        }
+
+        // Final stitch: concatenateClips re-encodes everything in one pass,
+        // so mixed stream-copy + xfade-encoded parts are handled transparently.
+        await concatenateClips(parts, outputPath);
+
+    } catch (err) {
+        console.error('[transition] failed, falling back to hard cut:', err.message);
+        tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+        try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
+        await concatenateClips(clipPaths, outputPath);
+        return outputPath;
+    }
+
+    tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    return outputPath;
+}
+
+/**
+ * Convert a still image into a 1-second silent video clip (for thumbnail prepend)
+ */
+function createThumbnailClip(imagePath, outputPath, width = 720, height = 1280) {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(imagePath)
+            .inputOptions(['-loop', '1', '-t', '1'])
+            // Generate a 1-second silent audio track so the concat demuxer
+            // sees matching streams (video+audio) in every input file.
+            .input('anullsrc=r=44100:cl=stereo')
+            .inputOptions(['-f', 'lavfi', '-t', '1'])
+            .outputOptions([
+                '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-ar', '44100',
+                '-ac', '2',
+                '-shortest',
+                '-r', '30',
+            ])
+            .output(outputPath)
+            .on('end', () => resolve(outputPath))
+            .on('error', reject)
+            .run();
+    });
+}
+
 function concatenateClips(clipPaths, outputPath) {
     return new Promise((resolve, reject) => {
         if (clipPaths.length === 0) {
@@ -856,44 +1286,6 @@ function concatenateClips(clipPaths, outputPath) {
             return;
         }
 
-        // For crossfade, we need to use xfade filter
-        // This requires knowing each clip's duration and applying sequential fades
-        const fadeDuration = 0.5; // 0.5 second crossfade
-
-        // Build the complex filter for crossfade
-        // We'll use xfade filter chaining
-        const ffmpegCmd = ffmpeg();
-
-        // Add all inputs
-        clipPaths.forEach(clipPath => {
-            ffmpegCmd.input(clipPath);
-        });
-
-        // Build xfade filter chain
-        let filterComplex = '';
-        let lastOutput = '[0:v]';
-        let audioFilters = '';
-        let lastAudioOutput = '[0:a]';
-
-        for (let i = 1; i < clipPaths.length; i++) {
-            const currentOutput = i === clipPaths.length - 1 ? '[outv]' : `[v${i}]`;
-            const currentAudioOutput = i === clipPaths.length - 1 ? '[outa]' : `[a${i}]`;
-
-            // Get approximate offset (we'll use a generic value since we don't know exact durations here)
-            // The xfade offset is when the transition starts
-            filterComplex += `${lastOutput}[${i}:v]xfade=transition=fade:duration=${fadeDuration}:offset=8${currentOutput};`;
-            audioFilters += `${lastAudioOutput}[${i}:a]acrossfade=d=${fadeDuration}${currentAudioOutput};`;
-
-            lastOutput = currentOutput;
-            lastAudioOutput = currentAudioOutput;
-        }
-
-        // Remove trailing semicolon
-        filterComplex = filterComplex.slice(0, -1);
-        audioFilters = audioFilters.slice(0, -1);
-
-        // For simplicity with variable durations, use concat filter with fade between
-        // This is more reliable than xfade which needs exact timing
         const concatFilePath = path.join(TEMP_DIR, 'concat_list.txt');
         const fileList = clipPaths.map(p => `file '${p}'`).join('\n');
         fs.writeFileSync(concatFilePath, fileList);
@@ -1011,10 +1403,19 @@ app.get('/api/progress/:sessionId', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable Railway/nginx proxy buffering for SSE
+    res.flushHeaders(); // Send headers immediately so the client knows the stream is open
 
     activeConnections.set(sessionId, res);
 
+    // Periodic heartbeat — prevents Railway's 60-second idle connection timeout from
+    // dropping the SSE stream mid-generation (especially during slow thumbnail steps)
+    const heartbeat = setInterval(() => {
+        if (res.writable) res.write(': heartbeat\n\n');
+    }, 20000);
+
     req.on('close', () => {
+        clearInterval(heartbeat);
         activeConnections.delete(sessionId);
     });
 });
@@ -1052,12 +1453,12 @@ const pendingSessions = new Map();
  * @param {Array} scenes - Array of scene objects from the script
  * @param {string} videoTitle - Title for the video file
  * @param {string} selectedLanguage - Language for the narration
- * @param {string} selectedThumbnail - The URL/path of the thumbnail selected by the user
+ * @param {Object} youtubeMetadata - Metadata for YouTube (title, description, etc.)
  * @param {string} [subscribeImage] - Optional custom path for the subscribe screen image
  * @returns {Promise<void>}
  */
-async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, selectedThumbnail, subscribeImage) {
-    console.log(`DEBUG: processScenes received for ${sessionId}`);
+async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, genre = 'informative', previewThumbnailPath = null, transition = 'cut') {
+    console.log(`DEBUG: processScenes received metadata for ${sessionId}:`, JSON.stringify(youtubeMetadata, null, 2));
     const tempFiles = []; // Track temp files for this processing session
 
     try {
@@ -1088,15 +1489,23 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
             totalScenes: scenes.length
         });
 
+        // Random ±3% tempo micro-variation — applied once per video for consistent pacing
+        const videoTempoVariation = 0.97 + Math.random() * 0.06;
+        console.log(`Video tempo variation: ${videoTempoVariation.toFixed(4)}x`);
+
         const audioResults = [];
         for (let i = 0; i < scenes.length; i++) {
             const scene = scenes[i];
             const audioPath = path.join(TEMP_DIR, `${sessionId}_scene_${i + 1}.mp3`);
             const audioScript = scene[audioFieldName];
 
-            console.log(`\n--- Generating audio for Scene ${i + 1} ---`);
+            console.log(`\n--- Generating audio for Scene ${i + 1} (genre: ${genre}) ---`);
 
-            await generateAudio(audioScript, audioPath);
+            await generateAudio(audioScript, audioPath, genre);
+
+            if (i === 0) {
+                await addSilenceToAudio(audioPath, 1, videoTempoVariation);
+            }
 
             tempFiles.push(audioPath);
             audioResults.push({ audioPath, index: i });
@@ -1162,12 +1571,12 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                 totalScenes: scenes.length
             });
 
-            await generateImage(prompt, imagePath);
+            await generateImage(prompt, imagePath, genre);
             allImagePaths.push(imagePath);
             tempFiles.push(imagePath);
 
             if (i < allImagePrompts.length - 1) {
-                await new Promise(r => setTimeout(r, 1000));
+                await new Promise(r => setTimeout(r, 3000));
             }
         }
 
@@ -1254,7 +1663,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                         firstPartClip,
                         0,
                         firstPartDuration,
-                        sceneIdx * 10
+                        sceneIdx * 10,
+                        genre
                     );
                 } else {
                     // Multiple images - distribute them across the first part
@@ -1269,7 +1679,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                             subClipPath,
                             imgIdx * segmentDuration,
                             segmentDuration,
-                            sceneIdx * 10 + imgIdx
+                            sceneIdx * 10 + imgIdx,
+                            genre
                         );
                         firstPartSubClips.push(subClipPath);
                         tempFiles.push(subClipPath);
@@ -1288,7 +1699,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                     subscribeClip,
                     firstPartDuration,  // Start from where first part ended
                     5,  // 5 seconds duration
-                    sceneIdx * 10 + 99
+                    sceneIdx * 10 + 99,
+                    genre
                 );
                 subClipPaths.push(subscribeClip);
                 tempFiles.push(subscribeClip);
@@ -1303,7 +1715,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                 // If last scene is 5 seconds or less, use subscribe image for entire scene
                 console.log(`Last scene is ${sceneDuration}s. Using subscribe image for entire scene.`);
                 const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
-                await createVideoClip(subscribeImagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                await createVideoClip(subscribeImagePath, audioPath, clipPath, sceneDuration, sceneIdx, genre);
                 clipPaths.push(clipPath);
                 tempFiles.push(clipPath);
 
@@ -1311,7 +1723,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                 // Normal processing for non-last scenes or if no subscribe image
                 if (numImages === 1) {
                     const clipPath = path.join(TEMP_DIR, `${sessionId}_clip_${sceneIdx + 1}.mp4`);
-                    await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx);
+                    await createVideoClip(sceneImages[0].imagePath, audioPath, clipPath, sceneDuration, sceneIdx, genre);
                     clipPaths.push(clipPath);
                     tempFiles.push(clipPath);
                 } else {
@@ -1326,7 +1738,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
                             subClipPath,
                             imgIdx * segmentDuration,
                             segmentDuration,
-                            sceneIdx * 10 + imgIdx
+                            sceneIdx * 10 + imgIdx,
+                            genre
                         );
                         subClipPaths.push(subClipPath);
                         tempFiles.push(subClipPath);
@@ -1352,59 +1765,71 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
         sendProgress(sessionId, {
             step: 'assembly',
             status: 'in_progress',
-            message: 'Adding Thumbnail Intro and Assembling final video...',
+            message: 'Assembling final video...',
             sceneIndex: scenes.length,
             totalScenes: scenes.length
         });
 
-        // Create a 1-second silent thumbnail clip
-        // Since lavfi is not available, we can create the video clip without an audio track 
-        // and concatenateClips handles missing audio streams.
-        // Wait, createVideoClip requires an audioPath. We can pass null or an empty path 
-        // and modify createVideoClip, OR we can generate a silent audio file using a different method.
-        // Actually, we can generate a silent mp4 directly here instead of using createVideoClip.
-
-        const thumbnailClipPath = path.join(TEMP_DIR, `${sessionId}_thumbnail_clip.mp4`);
-        let localThumbnailPath = selectedThumbnail;
-        if (selectedThumbnail.startsWith('/')) {
-            localThumbnailPath = path.join(__dirname, selectedThumbnail);
+        const finalVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
+        const transitionPool = (Array.isArray(transition) ? transition : [transition]).filter(t => VALID_TRANSITIONS.includes(t));
+        const effectPool = transitionPool.filter(t => t !== 'cut');
+        if (effectPool.length > 0 && clipPaths.length > 1) {
+            await concatenateClipsWithTransition(clipPaths, finalVideoPath, effectPool);
+        } else {
+            await concatenateClips(clipPaths, finalVideoPath);
         }
 
-        const silenceAudioPath = path.join(TEMP_DIR, `${sessionId}_thumbnail_silence.wav`);
-        // Generate a 1-second 44.1kHz 16-bit mono silent WAV file natively in JS
-        const sr = 44100;
-        const dataSize = sr * 2; // 1 sec, 1 ch, 16-bit (2 bytes)
-        const silenceBuffer = Buffer.alloc(44 + dataSize);
-        silenceBuffer.write('RIFF', 0);
-        silenceBuffer.writeUInt32LE(36 + dataSize, 4);
-        silenceBuffer.write('WAVE', 8);
-        silenceBuffer.write('fmt ', 12);
-        silenceBuffer.writeUInt32LE(16, 16);
-        silenceBuffer.writeUInt16LE(1, 20); // PCM
-        silenceBuffer.writeUInt16LE(1, 22); // Mono
-        silenceBuffer.writeUInt32LE(sr, 24);
-        silenceBuffer.writeUInt32LE(sr * 2, 28);
-        silenceBuffer.writeUInt16LE(2, 32);
-        silenceBuffer.writeUInt16LE(16, 34);
-        silenceBuffer.write('data', 36);
-        silenceBuffer.writeUInt32LE(dataSize, 40);
+        const videoUrl = `/api/video/${sessionId}`;
 
-        fs.writeFileSync(silenceAudioPath, silenceBuffer);
-        tempFiles.push(silenceAudioPath);
-
-        await createVideoClip(localThumbnailPath, silenceAudioPath, thumbnailClipPath, 1.0, 0);
-        tempFiles.push(thumbnailClipPath);
-
-        // Prepend the thumbnail clip to the beginning of the video
-        clipPaths.unshift(thumbnailClipPath);
-
-        const finalVideoPath = path.join(OUTPUT_DIR, `${sanitizedTitle}_${sessionId}.mp4`);
-        await concatenateClips(clipPaths, finalVideoPath);
-
-        const videoUrl = `/output/${path.basename(finalVideoPath)}`;
-
-        // Cleanup
+        // Cleanup intermediate temp files (audio, images, clips) — NOT the final video
         cleanupTempFiles(tempFiles);
+
+        // Generate Thumbnails if metadata exists
+        let thumbnailUrls = [];
+        let thumbnailPaths = [];
+        if (youtubeMetadata && youtubeMetadata.thumbnail_prompts) {
+            sendProgress(sessionId, {
+                step: 'image',
+                status: 'in_progress',
+                message: 'Generating viral thumbnails...',
+                sceneIndex: scenes.length,
+                totalScenes: scenes.length
+            });
+
+            if (previewThumbnailPath) {
+                // Reuse the image the user already saw during review — no extra generation
+                thumbnailPaths = [previewThumbnailPath];
+                console.log(`Using pre-generated preview thumbnail: ${previewThumbnailPath}`);
+            } else {
+                console.log("Generating thumbnails for session:", sessionId);
+                thumbnailPaths = await generateThumbnails(youtubeMetadata.thumbnail_prompts, sessionId, genre, youtubeMetadata.title || videoTitle, selectedLanguage);
+            }
+
+            for (let i = 0; i < thumbnailPaths.length; i++) {
+                thumbnailUrls.push(`/api/thumbnail/${sessionId}/${i}`);
+            }
+        }
+
+        // Prepend thumbnail as a 1-second still frame so YouTube can use it as a custom thumbnail
+        if (thumbnailPaths.length > 0) {
+            try {
+                const thumbClipPath = path.join(TEMP_DIR, `thumb_clip_${sessionId}.mp4`);
+                const prependedVideoPath = path.join(TEMP_DIR, `${sanitizedTitle}_${sessionId}_final.mp4`);
+                console.log('Prepending 1-second thumbnail frame to video...');
+                await createThumbnailClip(thumbnailPaths[0], thumbClipPath);
+                await concatenateClips([thumbClipPath, finalVideoPath], prependedVideoPath);
+                fs.unlinkSync(thumbClipPath);
+                fs.unlinkSync(finalVideoPath);
+                fs.renameSync(prependedVideoPath, finalVideoPath);
+                console.log('✓ Thumbnail frame prepended to video.');
+            } catch (thumbErr) {
+                console.error('Failed to prepend thumbnail frame (non-fatal):', thumbErr.message);
+            }
+        }
+
+        // Register in ephemeral registry with auto-cleanup after TTL
+        const timer = setTimeout(() => cleanupSession(sessionId), VIDEO_TTL_MS);
+        videoRegistry.set(sessionId, { videoPath: finalVideoPath, thumbnailPaths, timer, videoTitle: sanitizedTitle });
 
         sendProgress(sessionId, {
             step: 'complete',
@@ -1412,7 +1837,8 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
             message: 'Video ready!',
             videoUrl: videoUrl,
             youtubeMetadata: {
-                thumbnails: [selectedThumbnail] // Still passing this for UI if needed
+                ...youtubeMetadata,
+                thumbnails: thumbnailUrls
             },
             sceneIndex: scenes.length,
             totalScenes: scenes.length
@@ -1437,8 +1863,6 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
  * 
  * @name POST /api/create-video
  * @param {string} topic - Topic for the video
- * @param {string} [hook] - Hook for "didyouknow" genre
- * @param {string} [fact] - Fact for "didyouknow" genre
  * @param {number} [duration=60] - Target duration in seconds
  * @param {string} [genre='informative'] - Video style/genre
  * @param {string} [comedyLevel='mild'] - Comedy intensity
@@ -1447,8 +1871,7 @@ async function processScenes(sessionId, scenes, videoTitle, selectedLanguage, se
  * @param {string} [subscribeImage] - Optional custom subscribe image path
  */
 app.post('/api/create-video', async (req, res) => {
-    const { topic, hook, fact, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', subscribeImage = null } = req.body;
-    const preview = true; // Review is now mandatory
+    const { topic, duration = 60, genre = 'informative', comedyLevel = 'mild', language = 'gujarati', preview = false, subscribeImage = null, transition = 'cut' } = req.body;
     const targetDuration = Math.max(30, Math.min(300, parseInt(duration) || 45));
     const validGenres = ['informative', 'comedy', 'storytelling', 'motivational', 'didyouknow'];
     const selectedGenre = validGenres.includes(genre) ? genre : 'informative';
@@ -1456,18 +1879,17 @@ app.post('/api/create-video', async (req, res) => {
     const selectedComedyLevel = validComedyLevels.includes(comedyLevel) ? comedyLevel : 'mild';
     const validLanguages = ['gujarati', 'hindi', 'english'];
     const selectedLanguage = validLanguages.includes(language) ? language : 'gujarati';
+    const rawTransitions = Array.isArray(transition) ? transition : [transition];
+    const validPool = rawTransitions.filter(t => VALID_TRANSITIONS.includes(t));
+    const selectedTransition = validPool.length > 0 ? validPool : ['cut'];
     const sessionId = Date.now().toString();
 
     // Validation
-    if (selectedGenre === 'didyouknow') {
-        if (!hook || !fact) {
-            return res.status(400).json({ success: false, error: 'Hook and Fact required' });
-        }
-    } else if (!topic) {
+    if (!topic) {
         return res.status(400).json({ success: false, error: 'Topic is required' });
     }
 
-    const effectiveTopic = selectedGenre === 'didyouknow' ? `HOOK: ${hook}\n\nFACT: ${fact}` : topic;
+    const effectiveTopic = topic;
 
     res.json({ success: true, sessionId, message: 'Video creation started' });
 
@@ -1484,34 +1906,18 @@ app.post('/api/create-video', async (req, res) => {
         const scriptResult = await generateScript(effectiveTopic, targetDuration, selectedGenre, selectedComedyLevel, selectedLanguage);
         const scenes = scriptResult.scenes;
         const videoTitle = scriptResult.videoTitle || 'Untitled Video';
-        const thumbnailPrompts = scriptResult.thumbnail_prompts || [];
+        const youtubeMetadata = scriptResult.youtube_metadata;
 
         console.log(`Script Generated: ${scenes.length} scenes`);
-        console.log('DEBUG: thumbnailPrompts:', JSON.stringify(thumbnailPrompts, null, 2));
-
-        sendProgress(sessionId, {
-            step: 'image',
-            status: 'in_progress',
-            message: `Generating ${thumbnailPrompts.length} thumbnail options...`,
-            sceneIndex: 0,
-            totalScenes: scenes.length
-        });
-
-        const thumbnailUrls = [];
-        if (thumbnailPrompts.length > 0) {
-            console.log("Generating thumbnails for session:", sessionId);
-            const thumbnailPaths = await generateThumbnails(thumbnailPrompts, sessionId);
-            for (let i = 0; i < thumbnailPaths.length; i++) {
-                thumbnailUrls.push(`/output/${path.basename(thumbnailPaths[i])}`);
-            }
-        }
+        console.log('DEBUG: youtubeMetadata in create-video:', JSON.stringify(youtubeMetadata, null, 2));
 
         sendProgress(sessionId, {
             step: 'script',
             status: 'completed',
             message: `Generated ${scenes.length} scenes - "${videoTitle}"`,
             sceneIndex: 0,
-            totalScenes: scenes.length
+            totalScenes: scenes.length,
+            youtubeMetadata
         });
 
         // PREVIEW MODE CHECK
@@ -1521,28 +1927,68 @@ app.post('/api/create-video', async (req, res) => {
                 scenes,
                 videoTitle,
                 selectedLanguage,
-                thumbnailUrls,
-                subscribeImage
+                youtubeMetadata,
+                subscribeImage,
+                genre: selectedGenre,
+                transition: selectedTransition
             });
 
             // Send preview data via SSE
             sendProgress(sessionId, {
                 step: 'previewReady',
                 status: 'waiting',
-                message: 'Script and thumbnails ready for review',
+                message: 'Script ready for review',
                 data: {
                     videoTitle,
                     scenes,
                     language: selectedLanguage,
-                    thumbnailUrls,
+                    youtubeMetadata,
                     subscribeImage
                 }
             });
+
+            // Generate thumbnail previews in the background so user can see them during review
+            if (youtubeMetadata && youtubeMetadata.thumbnail_prompts && youtubeMetadata.thumbnail_prompts.length > 0) {
+                const ctrl = { aborted: false };
+                const session = pendingSessions.get(sessionId);
+                if (session) session.previewCtrl = ctrl;
+
+                (async () => {
+                    for (let i = 0; i < youtubeMetadata.thumbnail_prompts.length; i++) {
+                        if (ctrl.aborted) break;
+                        const thumbPath = path.join(TEMP_DIR, `${sessionId}_preview_thumb_${i + 1}.png`);
+                        try {
+                            const cleanedPrompt = cleanImagePrompt(youtubeMetadata.thumbnail_prompts[i]);
+                            await generateImage(cleanedPrompt, thumbPath, selectedGenre);
+                            await resizeToPortrait(thumbPath);
+                            if (youtubeMetadata.title) {
+                                await addTitleOverlay(thumbPath, youtubeMetadata.title, selectedLanguage);
+                            }
+                            if (ctrl.aborted) break; // user confirmed while we were generating
+                            const sess = pendingSessions.get(sessionId);
+                            if (sess) {
+                                if (!sess.previewThumbnailPaths) sess.previewThumbnailPaths = [];
+                                sess.previewThumbnailPaths[i] = thumbPath;
+                            }
+                            sendProgress(sessionId, {
+                                step: 'thumbnailPreview',
+                                status: 'ready',
+                                message: `Thumbnail ${i + 1} preview ready`,
+                                index: i,
+                                url: `/api/preview-thumbnail/${sessionId}/${i}`
+                            });
+                        } catch (e) {
+                            console.error(`Preview thumbnail ${i + 1} failed:`, e.message);
+                        }
+                    }
+                })();
+            }
+
             return; // STOP HERE
         }
 
-        // If not preview, proceed immediately (this shouldn't happen anymore)
-        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, thumbnailUrls[0], subscribeImage);
+        // If not preview, proceed immediately
+        await processScenes(sessionId, scenes, videoTitle, selectedLanguage, youtubeMetadata, subscribeImage, selectedGenre, null, selectedTransition);
 
     } catch (error) {
         console.error('Script generation failed:', error);
@@ -1563,23 +2009,43 @@ app.post('/api/create-video', async (req, res) => {
  * @param {string} req.body.sessionId - The session ID to resume
  */
 app.post('/api/confirm-video', async (req, res) => {
-    const { sessionId, selectedThumbnail } = req.body;
+    const { sessionId, selectedThumbnailIndex } = req.body;
 
     if (!sessionId || !pendingSessions.has(sessionId)) {
         return res.status(404).json({ success: false, error: 'Session not found or expired' });
     }
 
-    if (!selectedThumbnail) {
-        return res.status(400).json({ success: false, error: 'Selected thumbnail is required' });
-    }
-
     const sessionData = pendingSessions.get(sessionId);
     pendingSessions.delete(sessionId); // Clear from memory
+
+    // Abort background thumbnail preview generation so it doesn't compete with processScenes
+    if (sessionData.previewCtrl) sessionData.previewCtrl.aborted = true;
 
     res.json({ success: true, message: 'Resuming video generation' });
 
     console.log(`Resuming session ${sessionId} after preview approval`);
-    console.log('DEBUG: sessionData stored metadata:', JSON.stringify(sessionData.youtubeMetadata, null, 2));
+
+    // Filter thumbnail prompts to only the user-selected one
+    const youtubeMetadata = { ...sessionData.youtubeMetadata };
+    let previewThumbnailPath = null;
+    if (
+        youtubeMetadata.thumbnail_prompts &&
+        youtubeMetadata.thumbnail_prompts.length > 0 &&
+        selectedThumbnailIndex !== undefined
+    ) {
+        const idx = parseInt(selectedThumbnailIndex, 10);
+        const chosen = youtubeMetadata.thumbnail_prompts[idx];
+        if (chosen) {
+            youtubeMetadata.thumbnail_prompts = [chosen];
+            console.log(`Thumbnail option ${idx + 1} selected: "${chosen}"`);
+        }
+        // Reuse preview thumbnail if already generated — saves quota and ensures same image user saw
+        const preview = sessionData.previewThumbnailPaths && sessionData.previewThumbnailPaths[idx];
+        if (preview && fs.existsSync(preview)) {
+            previewThumbnailPath = preview;
+            console.log(`Reusing already-generated preview thumbnail for option ${idx + 1}`);
+        }
+    }
 
     // Resume processing
     await processScenes(
@@ -1587,8 +2053,11 @@ app.post('/api/confirm-video', async (req, res) => {
         sessionData.scenes,
         sessionData.videoTitle,
         sessionData.selectedLanguage,
-        selectedThumbnail,
-        sessionData.subscribeImage
+        youtubeMetadata,
+        sessionData.subscribeImage,
+        sessionData.genre || 'informative',
+        previewThumbnailPath,
+        sessionData.transition || 'cut'
     );
 });
 
@@ -1603,15 +2072,20 @@ app.post('/api/confirm-video', async (req, res) => {
  * @param {string} sessionId - Unique session ID
  * @returns {Promise<string[]>} Array of absolute paths to generated thumbnail images
  */
-async function generateThumbnails(prompts, sessionId) {
+async function generateThumbnails(prompts, sessionId, genre = 'informative', title = '', language = 'hindi') {
     const paths = [];
     for (let i = 0; i < prompts.length; i++) {
-        const prompt = prompts[i];
-        const path = `${OUTPUT_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
+        const cleanedPrompt = cleanImagePrompt(prompts[i]);
+        const thumbPath = `${TEMP_DIR}/${sessionId}_thumbnail_${i + 1}.png`;
         console.log(`Generating thumbnail ${i + 1}...`);
         try {
-            await generateImage(prompt, path);
-            paths.push(path);
+            await generateImage(cleanedPrompt, thumbPath, genre);
+            await resizeToPortrait(thumbPath);
+            if (title) {
+                await addTitleOverlay(thumbPath, title, language);
+                console.log(`✓ Title overlay added to thumbnail ${i + 1}`);
+            }
+            paths.push(thumbPath);
         } catch (e) {
             console.error(`Thumbnail ${i + 1} failed:`, e);
         }
@@ -1676,8 +2150,95 @@ app.post('/api/test-images', async (req, res) => {
 });
 
 /**
+ * Stream the generated video for a session (ephemeral — disappears on cleanup)
+ * Supports HTTP Range requests so the browser can seek in the video.
+ * Add ?download=1 to trigger a file download instead of inline playback.
+ *
+ * @name GET /api/video/:sessionId
+ */
+app.get('/api/video/:sessionId', (req, res) => {
+    const entry = videoRegistry.get(req.params.sessionId);
+    if (!entry || !fs.existsSync(entry.videoPath)) {
+        return res.status(404).json({ error: 'Video not found or has expired' });
+    }
+
+    const filePath = entry.videoPath;
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    const isDownload = req.query.download === '1';
+    const filename = `${entry.videoTitle || 'video'}.mp4`;
+    const disposition = isDownload ? `attachment; filename="${filename}"` : `inline; filename="${filename}"`;
+
+    if (range) {
+        const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(startStr, 10);
+        const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize,
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': disposition,
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+    } else {
+        res.writeHead(200, {
+            'Content-Length': fileSize,
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Content-Disposition': disposition,
+        });
+        fs.createReadStream(filePath).pipe(res);
+    }
+});
+
+/**
+ * Serve a thumbnail image for a session
+ *
+ * @name GET /api/thumbnail/:sessionId/:index
+ */
+app.get('/api/thumbnail/:sessionId/:index', (req, res) => {
+    const entry = videoRegistry.get(req.params.sessionId);
+    const idx = parseInt(req.params.index, 10);
+    if (!entry || !entry.thumbnailPaths[idx] || !fs.existsSync(entry.thumbnailPaths[idx])) {
+        return res.status(404).json({ error: 'Thumbnail not found or has expired' });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="thumbnail_${idx + 1}.png"`);
+    fs.createReadStream(entry.thumbnailPaths[idx]).pipe(res);
+});
+
+/**
+ * Serve a preview thumbnail generated during script review
+ *
+ * @name GET /api/preview-thumbnail/:sessionId/:index
+ */
+app.get('/api/preview-thumbnail/:sessionId/:index', (req, res) => {
+    const session = pendingSessions.get(req.params.sessionId);
+    const idx = parseInt(req.params.index, 10);
+    const thumbPath = session && session.previewThumbnailPaths && session.previewThumbnailPaths[idx];
+    if (!thumbPath || !fs.existsSync(thumbPath)) {
+        return res.status(404).json({ error: 'Preview thumbnail not ready yet' });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    fs.createReadStream(thumbPath).pipe(res);
+});
+
+/**
+ * Clean up a session's video and thumbnails immediately (called on page close)
+ *
+ * @name DELETE /api/session/:sessionId
+ */
+app.delete('/api/session/:sessionId', (req, res) => {
+    cleanupSession(req.params.sessionId);
+    res.json({ success: true });
+});
+
+/**
  * Health check endpoint
- * 
+ *
  * Simple endpoint to verify the server is running and responding.
  */
 app.get('/api/health', (req, res) => {
